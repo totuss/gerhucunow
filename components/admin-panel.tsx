@@ -16,15 +16,25 @@ import {
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { Eye, EyeOff } from "lucide-react"
-import type { User } from "./types"
+import type { User } from "@/lib/types"
 
 interface AdminPanelProps {
   users: User[]
   onUpdateSubscription: (username: string, days: number) => void
+  onUpdateUser: (originalUsername: string, updatedUser: Partial<User>) => void
+  onDeleteUser: (username: string) => void
+  onAddUser: (user: User) => void
   onLogout: () => void
 }
 
-export default function AdminPanel({ users, onUpdateSubscription, onLogout }: AdminPanelProps) {
+export default function AdminPanel({
+  users,
+  onUpdateSubscription,
+  onUpdateUser,
+  onDeleteUser,
+  onAddUser,
+  onLogout,
+}: AdminPanelProps) {
   const [selectedUsername, setSelectedUsername] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showPasswordField, setShowPasswordField] = useState(false)
@@ -38,6 +48,7 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
     days: 0,
     hours: 0,
     minutes: 0,
+    isAdmin: false,
   })
 
   // Edit user form state
@@ -48,14 +59,23 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
     days: 0,
     hours: 0,
     minutes: 0,
+    isAdmin: false,
   })
 
   const handleAddUser = () => {
     // Calculate total days including hours and minutes
     const totalDays = newUser.days + newUser.hours / 24 + newUser.minutes / 1440
 
-    // Here you would add the user to your system
-    // For now we'll just close the dialog
+    // Create new user object
+    const user: User = {
+      username: newUser.username,
+      password: newUser.password,
+      daysLeft: totalDays,
+      isAdmin: newUser.isAdmin,
+    }
+
+    // Add user
+    onAddUser(user)
     setShowAddUser(false)
 
     // Reset form
@@ -65,17 +85,37 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
       days: 0,
       hours: 0,
       minutes: 0,
+      isAdmin: false,
     })
   }
 
   const handleEditUser = () => {
-    // Here you would update the user in your system
+    // Calculate total days including hours and minutes
+    const totalDays = editUser.days + editUser.hours / 24 + editUser.minutes / 1440
+
+    // Create updated user object
+    const updatedUser: Partial<User> = {
+      username: editUser.username,
+      password: editUser.password,
+      daysLeft: totalDays,
+      isAdmin: editUser.isAdmin,
+    }
+
+    // Update user
+    onUpdateUser(editUser.originalUsername, updatedUser)
     setShowEditUser(false)
   }
 
   const handleDeleteUser = () => {
-    // Here you would delete the user from your system
+    onDeleteUser(selectedUsername)
     setShowDeleteConfirm(false)
+  }
+
+  const handleRemoveSubscription = (username: string) => {
+    const user = users.find((u) => u.username === username)
+    if (user) {
+      onUpdateSubscription(username, -user.daysLeft)
+    }
   }
 
   const handleSelectUser = () => {
@@ -93,6 +133,7 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
         days,
         hours,
         minutes,
+        isAdmin: user.isAdmin,
       })
       setShowEditUser(true)
     }
@@ -175,10 +216,7 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => {
-                              setSelectedUsername(user.username)
-                              onUpdateSubscription(user.username, -user.daysLeft)
-                            }}
+                            onClick={() => handleRemoveSubscription(user.username)}
                             variant="outline"
                             className="dark:border-[rgb(45,45,48)] dark:text-red-400"
                           >
@@ -345,6 +383,18 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
                 </div>
               </div>
             </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="new-is-admin"
+                checked={newUser.isAdmin}
+                onChange={(e) => setNewUser({ ...newUser, isAdmin: e.target.checked })}
+                className="rounded dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)]"
+              />
+              <Label htmlFor="new-is-admin" className="dark:text-white">
+                Администратор
+              </Label>
+            </div>
           </div>
           <DialogFooter>
             <Button onClick={handleAddUser}>Добавить</Button>
@@ -439,12 +489,24 @@ export default function AdminPanel({ users, onUpdateSubscription, onLogout }: Ad
                 </div>
               </div>
             </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="edit-is-admin"
+                checked={editUser.isAdmin}
+                onChange={(e) => setEditUser({ ...editUser, isAdmin: e.target.checked })}
+                className="rounded dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)]"
+              />
+              <Label htmlFor="edit-is-admin" className="dark:text-white">
+                Администратор
+              </Label>
+            </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 className="flex-1 dark:border-[rgb(45,45,48)] dark:text-red-400"
                 onClick={() => {
-                  // Logic to remove subscription
+                  handleRemoveSubscription(editUser.originalUsername)
                   setShowEditUser(false)
                 }}
               >

@@ -1,5 +1,8 @@
-import FileCheckStatistics from "../file-check-stats"
+import { redirect } from "next/navigation"
 
-export default function Page() {
-  return <FileCheckStatistics />
+export default function Home() {
+  // Redirect to login page by default
+  redirect("/login")
+
+  return null
 }
