@@ -17,13 +17,14 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Eye, EyeOff } from "lucide-react"
 import type { User } from "@/lib/types"
+import { formatTimeLeft } from "@/lib/types"
 
 interface AdminPanelProps {
   users: User[]
   onUpdateSubscription: (username: string, days: number) => void
   onUpdateUser: (originalUsername: string, updatedUser: Partial<User>) => void
   onDeleteUser: (username: string) => void
-  onAddUser: (user: User) => void
+  onAddUser: (user: Omit<User, "user_id" | "user_dateofcreation">) => void
   onLogout: () => void
 }
 
@@ -43,23 +44,23 @@ export default function AdminPanel({
 
   // New user form state
   const [newUser, setNewUser] = useState({
-    username: "",
-    password: "",
+    user_login: "",
+    user_password: "",
     days: 0,
     hours: 0,
     minutes: 0,
-    isAdmin: false,
+    is_admin: false,
   })
 
   // Edit user form state
   const [editUser, setEditUser] = useState({
     originalUsername: "",
-    username: "",
-    password: "",
+    user_login: "",
+    user_password: "",
     days: 0,
     hours: 0,
     minutes: 0,
-    isAdmin: false,
+    is_admin: false,
   })
 
   const handleAddUser = () => {
@@ -67,11 +68,11 @@ export default function AdminPanel({
     const totalDays = newUser.days + newUser.hours / 24 + newUser.minutes / 1440
 
     // Create new user object
-    const user: User = {
-      username: newUser.username,
-      password: newUser.password,
-      daysLeft: totalDays,
-      isAdmin: newUser.isAdmin,
+    const user = {
+      user_login: newUser.user_login,
+      user_password: newUser.user_password,
+      is_admin: newUser.is_admin,
+      days_left: totalDays,
     }
 
     // Add user
@@ -80,12 +81,12 @@ export default function AdminPanel({
 
     // Reset form
     setNewUser({
-      username: "",
-      password: "",
+      user_login: "",
+      user_password: "",
       days: 0,
       hours: 0,
       minutes: 0,
-      isAdmin: false,
+      is_admin: false,
     })
   }
 
@@ -95,10 +96,10 @@ export default function AdminPanel({
 
     // Create updated user object
     const updatedUser: Partial<User> = {
-      username: editUser.username,
-      password: editUser.password,
-      daysLeft: totalDays,
-      isAdmin: editUser.isAdmin,
+      user_login: editUser.user_login,
+      user_password: editUser.user_password,
+      days_left: totalDays,
+      is_admin: editUser.is_admin,
     }
 
     // Update user
@@ -112,39 +113,31 @@ export default function AdminPanel({
   }
 
   const handleRemoveSubscription = (username: string) => {
-    const user = users.find((u) => u.username === username)
+    const user = users.find((u) => u.user_login === username)
     if (user) {
-      onUpdateSubscription(username, -user.daysLeft)
+      onUpdateSubscription(username, -user.days_left)
     }
   }
 
   const handleSelectUser = () => {
-    const user = users.find((u) => u.username === selectedUsername)
+    const user = users.find((u) => u.user_login === selectedUsername)
     if (user) {
       // Convert days to days, hours, minutes
-      const days = Math.floor(user.daysLeft)
-      const hours = Math.floor((user.daysLeft - days) * 24)
-      const minutes = Math.floor(((user.daysLeft - days) * 24 - hours) * 60)
+      const days = Math.floor(user.days_left)
+      const hours = Math.floor((user.days_left - days) * 24)
+      const minutes = Math.floor(((user.days_left - days) * 24 - hours) * 60)
 
       setEditUser({
-        originalUsername: user.username,
-        username: user.username,
-        password: user.password,
+        originalUsername: user.user_login,
+        user_login: user.user_login,
+        user_password: user.user_password || "",
         days,
         hours,
         minutes,
-        isAdmin: user.isAdmin,
+        is_admin: user.is_admin,
       })
       setShowEditUser(true)
     }
-  }
-
-  const formatTimeLeft = (days: number) => {
-    const wholeDays = Math.floor(days)
-    const remainingHours = Math.floor((days - wholeDays) * 24)
-    const remainingMinutes = Math.floor(((days - wholeDays) * 24 - remainingHours) * 60)
-
-    return `${wholeDays}д ${remainingHours}ч ${remainingMinutes}м`
   }
 
   return (
@@ -176,16 +169,16 @@ export default function AdminPanel({
                 </TableHeader>
                 <TableBody>
                   {users.map((user) => (
-                    <TableRow key={user.username} className="dark:border-[rgb(45,45,48)]">
-                      <TableCell className="font-medium dark:text-white">{user.username}</TableCell>
+                    <TableRow key={user.user_id} className="dark:border-[rgb(45,45,48)]">
+                      <TableCell className="font-medium dark:text-white">{user.user_login}</TableCell>
                       <TableCell className="dark:text-white">
                         <div className="flex items-center">
-                          <span className="blur-sm hover:blur-none transition-all">{user.password}</span>
+                          <span className="blur-sm hover:blur-none transition-all">{user.user_password}</span>
                         </div>
                       </TableCell>
                       <TableCell className="dark:text-white">
-                        {user.daysLeft > 0 ? (
-                          formatTimeLeft(user.daysLeft)
+                        {user.days_left > 0 ? (
+                          formatTimeLeft(user.days_left)
                         ) : (
                           <span className="text-red-500">Истекла</span>
                         )}
@@ -194,21 +187,21 @@ export default function AdminPanel({
                         <div className="flex gap-2 flex-wrap">
                           <Button
                             size="sm"
-                            onClick={() => onUpdateSubscription(user.username, 30)}
+                            onClick={() => onUpdateSubscription(user.user_login, 30)}
                             className="dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white"
                           >
                             +30д
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => onUpdateSubscription(user.username, 7)}
+                            onClick={() => onUpdateSubscription(user.user_login, 7)}
                             className="dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white"
                           >
                             +7д
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => onUpdateSubscription(user.username, -1)}
+                            onClick={() => onUpdateSubscription(user.user_login, -1)}
                             variant="outline"
                             className="dark:border-[rgb(45,45,48)] dark:text-gray-200"
                           >
@@ -216,7 +209,7 @@ export default function AdminPanel({
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => handleRemoveSubscription(user.username)}
+                            onClick={() => handleRemoveSubscription(user.user_login)}
                             variant="outline"
                             className="dark:border-[rgb(45,45,48)] dark:text-red-400"
                           >
@@ -225,7 +218,7 @@ export default function AdminPanel({
                           <Button
                             size="sm"
                             onClick={() => {
-                              setSelectedUsername(user.username)
+                              setSelectedUsername(user.user_login)
                               setShowDeleteConfirm(true)
                             }}
                             variant="destructive"
@@ -309,8 +302,8 @@ export default function AdminPanel({
               </Label>
               <Input
                 id="new-username"
-                value={newUser.username}
-                onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                value={newUser.user_login}
+                onChange={(e) => setNewUser({ ...newUser, user_login: e.target.value })}
                 className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
               />
             </div>
@@ -322,8 +315,8 @@ export default function AdminPanel({
                 <Input
                   id="new-password"
                   type={showPasswordField ? "text" : "password"}
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  value={newUser.user_password}
+                  onChange={(e) => setNewUser({ ...newUser, user_password: e.target.value })}
                   className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white pr-10"
                 />
                 <Button
@@ -387,8 +380,8 @@ export default function AdminPanel({
               <input
                 type="checkbox"
                 id="new-is-admin"
-                checked={newUser.isAdmin}
-                onChange={(e) => setNewUser({ ...newUser, isAdmin: e.target.checked })}
+                checked={newUser.is_admin}
+                onChange={(e) => setNewUser({ ...newUser, is_admin: e.target.checked })}
                 className="rounded dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)]"
               />
               <Label htmlFor="new-is-admin" className="dark:text-white">
@@ -415,8 +408,8 @@ export default function AdminPanel({
               </Label>
               <Input
                 id="edit-username"
-                value={editUser.username}
-                onChange={(e) => setEditUser({ ...editUser, username: e.target.value })}
+                value={editUser.user_login}
+                onChange={(e) => setEditUser({ ...editUser, user_login: e.target.value })}
                 className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
               />
             </div>
@@ -428,8 +421,8 @@ export default function AdminPanel({
                 <Input
                   id="edit-password"
                   type={showPasswordField ? "text" : "password"}
-                  value={editUser.password}
-                  onChange={(e) => setEditUser({ ...editUser, password: e.target.value })}
+                  value={editUser.user_password}
+                  onChange={(e) => setEditUser({ ...editUser, user_password: e.target.value })}
                   className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white pr-10"
                 />
                 <Button
@@ -493,8 +486,8 @@ export default function AdminPanel({
               <input
                 type="checkbox"
                 id="edit-is-admin"
-                checked={editUser.isAdmin}
-                onChange={(e) => setEditUser({ ...editUser, isAdmin: e.target.checked })}
+                checked={editUser.is_admin}
+                onChange={(e) => setEditUser({ ...editUser, is_admin: e.target.checked })}
                 className="rounded dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)]"
               />
               <Label htmlFor="edit-is-admin" className="dark:text-white">

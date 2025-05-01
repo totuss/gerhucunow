@@ -1,65 +1,144 @@
 import type { User } from "./types"
+import { getSupabaseClient } from "./supabase"
 
-// Mock database - in a real app, this would be a database connection
-const users: User[] = [
-  { username: "qkz", password: "1", daysLeft: 30, isAdmin: true },
-  { username: "zlepki", password: "0", daysLeft: 15, isAdmin: false },
-  { username: "test", password: "1", daysLeft: 0, isAdmin: false },
-]
-
-// Function to get all users
+// Функция для получения всех пользователей
 export async function getUsers(): Promise<User[]> {
-  // In a real app, this would fetch from a database
-  return [...users]
+  try {
+    const supabase = getSupabaseClient()
+
+    const { data, error } = await supabase.from("users").select("*")
+
+    if (error) {
+      console.error("Error getting users:", error)
+      return []
+    }
+
+    // Преобразуем данные из БД в формат User[]
+    return data.map((user) => ({
+      user_id: user.user_id,
+      user_login: user.user_login,
+      user_password: user.user_password,
+      user_dateofcreation: user.user_dateofcreation,
+      is_admin: user.is_admin,
+      days_left: Number(user.days_left),
+    }))
+  } catch (error) {
+    console.error("Error getting users:", error)
+    return []
+  }
 }
 
-// Function to get a single user by username
+// Функция для получения пользователя по логину
 export async function getUserByUsername(username: string): Promise<User | null> {
-  return users.find((user) => user.username === username) || null
+  try {
+    const supabase = getSupabaseClient()
+
+    const { data, error } = await supabase.from("users").select("*").eq("user_login", username).single()
+
+    if (error || !data) {
+      console.error("Error getting user by username:", error)
+      return null
+    }
+
+    // Преобразуем данные из БД в формат User
+    return {
+      user_id: data.user_id,
+      user_login: data.user_login,
+      user_password: data.user_password,
+      user_dateofcreation: data.user_dateofcreation,
+      is_admin: data.is_admin,
+      days_left: Number(data.days_left),
+    }
+  } catch (error) {
+    console.error("Error getting user by username:", error)
+    return null
+  }
 }
 
-// Function to get all users
+// Функция для получения всех пользователей
 export async function getAllUsers(): Promise<User[]> {
-  return [...users]
+  return getUsers()
 }
 
-// Function to add a new user
-export async function addUser(user: User): Promise<void> {
-  // Check if user already exists
-  const existingUser = await getUserByUsername(user.username)
-  if (existingUser) {
-    throw new Error(`User with username ${user.username} already exists`)
-  }
+// Функция для добавления нового пользователя
+export async function addUser(user: Omit<User, "user_id" | "user_dateofcreation">): Promise<User | null> {
+  try {
+    const supabase = getSupabaseClient()
 
-  // Add user
-  users.push(user)
+    const { data, error } = await supabase
+      .from("users")
+      .insert([
+        {
+          user_login: user.user_login,
+          user_password: user.user_password,
+          is_admin: user.is_admin,
+          days_left: user.days_left,
+        },
+      ])
+      .select()
+
+    if (error || !data || data.length === 0) {
+      console.error("Error adding user:", error)
+      return null
+    }
+
+    // Преобразуем данные из БД в формат User
+    return {
+      user_id: data[0].user_id,
+      user_login: data[0].user_login,
+      user_password: data[0].user_password,
+      user_dateofcreation: data[0].user_dateofcreation,
+      is_admin: data[0].is_admin,
+      days_left: Number(data[0].days_left),
+    }
+  } catch (error) {
+    console.error("Error adding user:", error)
+    return null
+  }
 }
 
-// Function to update a user
-export async function updateUser(username: string, updatedFields: Partial<User>): Promise<void> {
-  const userIndex = users.findIndex((user) => user.username === username)
+// Функция для обновления пользователя
+export async function updateUser(username: string, updatedFields: Partial<User>): Promise<boolean> {
+  try {
+    const supabase = getSupabaseClient()
 
-  if (userIndex === -1) {
-    throw new Error(`User with username ${username} not found`)
-  }
+    // Подготавливаем объект с обновляемыми полями
+    const updateData: any = {}
 
-  // Update user
-  users[userIndex] = {
-    ...users[userIndex],
-    ...updatedFields,
-    // If username is being updated, make sure it's unique
-    ...(updatedFields.username && updatedFields.username !== username ? { username: updatedFields.username } : {}),
+    if (updatedFields.user_login) updateData.user_login = updatedFields.user_login
+    if (updatedFields.user_password) updateData.user_password = updatedFields.user_password
+    if (updatedFields.is_admin !== undefined) updateData.is_admin = updatedFields.is_admin
+    if (updatedFields.days_left !== undefined) updateData.days_left = updatedFields.days_left
+
+    const { error } = await supabase.from("users").update(updateData).eq("user_login", username)
+
+    if (error) {
+      console.error("Error updating user:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error updating user:", error)
+    return false
   }
 }
 
-// Function to delete a user
-export async function deleteUser(username: string): Promise<void> {
-  const userIndex = users.findIndex((user) => user.username === username)
+// Функция для удаления пользователя
+export async function deleteUser(username: string): Promise<boolean> {
+  try {
+    const supabase = getSupabaseClient()
 
-  if (userIndex === -1) {
-    throw new Error(`User with username ${username} not found`)
+    const { error } = await supabase.from("users").delete().eq("user_login", username)
+
+    if (error) {
+      console.error("Error deleting user:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error deleting user:", error)
+    return false
   }
-
-  // Delete user
-  users.splice(userIndex, 1)
 }

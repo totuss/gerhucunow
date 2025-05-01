@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import LoginPage from "@/components/login-page"
-import { getUserByCredentials } from "@/lib/auth"
+import { getUserByCredentials, registerUser } from "@/lib/auth"
 import { setCookie } from "@/lib/cookies"
 
 export default function LoginRoute() {
@@ -19,14 +19,14 @@ export default function LoginRoute() {
       const user = await getUserByCredentials(username, password)
 
       if (user) {
-        // Store user info in cookie instead of localStorage
+        // Store user info in cookie
         setCookie("currentUser", JSON.stringify(user), 7) // 7 days expiration
 
         // Redirect based on user role
-        if (user.isAdmin) {
+        if (user.is_admin) {
           router.push("/admin")
         } else {
-          if (user.daysLeft <= 0) {
+          if (user.days_left <= 0) {
             router.push("/expired")
           } else {
             router.push("/panel")
@@ -43,5 +43,29 @@ export default function LoginRoute() {
     }
   }
 
-  return <LoginPage onLogin={handleLogin} initialError={error} isLoading={isLoading} />
+  const handleRegister = async (username: string, password: string) => {
+    try {
+      setIsLoading(true)
+      setError("")
+
+      const result = await registerUser(username, password)
+
+      if (result.success) {
+        setError("")
+        // Показываем сообщение об успешной регистрации
+        alert("Регистрация успешна! Теперь вы можете войти в систему.")
+        // Переключаемся на вкладку входа
+        // Примечание: здесь нужно добавить логику переключения вкладки
+      } else {
+        setError(result.message)
+      }
+    } catch (error) {
+      console.error("Registration error:", error)
+      setError("Ошибка при регистрации")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return <LoginPage onLogin={handleLogin} onRegister={handleRegister} initialError={error} isLoading={isLoading} />
 }

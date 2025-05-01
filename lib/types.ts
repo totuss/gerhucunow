@@ -1,8 +1,10 @@
 export interface User {
-  username: string
-  password: string
-  daysLeft: number
-  isAdmin: boolean
+  user_id: string
+  user_login: string
+  user_password?: string // Опционально, чтобы не передавать пароль в UI
+  user_dateofcreation: string
+  is_admin: boolean
+  days_left: number
 }
 
 export interface LogEntry {

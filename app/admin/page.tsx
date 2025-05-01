@@ -21,7 +21,7 @@ export default function AdminPage() {
       return
     }
 
-    if (!user.isAdmin) {
+    if (!user.is_admin) {
       router.push("/panel")
       return
     }
@@ -42,13 +42,15 @@ export default function AdminPage() {
 
   const handleUpdateSubscription = async (username: string, days: number) => {
     try {
-      const user = users.find((u) => u.username === username)
+      const user = users.find((u) => u.user_login === username)
       if (user) {
-        const updatedDaysLeft = Math.max(0, user.daysLeft + days)
-        await updateUser(username, { daysLeft: updatedDaysLeft })
+        const updatedDaysLeft = Math.max(0, user.days_left + days)
+        const success = await updateUser(username, { days_left: updatedDaysLeft })
 
-        // Update local state
-        setUsers(users.map((u) => (u.username === username ? { ...u, daysLeft: updatedDaysLeft } : u)))
+        if (success) {
+          // Update local state
+          setUsers(users.map((u) => (u.user_login === username ? { ...u, days_left: updatedDaysLeft } : u)))
+        }
       }
     } catch (error) {
       console.error("Error updating subscription:", error)
@@ -57,8 +59,10 @@ export default function AdminPage() {
 
   const handleUpdateUser = async (originalUsername: string, updatedUser: Partial<User>) => {
     try {
-      await updateUser(originalUsername, updatedUser)
-      await loadUsers() // Reload all users to get fresh data
+      const success = await updateUser(originalUsername, updatedUser)
+      if (success) {
+        await loadUsers() // Reload all users to get fresh data
+      }
     } catch (error) {
       console.error("Error updating user:", error)
     }
@@ -66,19 +70,23 @@ export default function AdminPage() {
 
   const handleDeleteUser = async (username: string) => {
     try {
-      await deleteUser(username)
-      // Update local state
-      setUsers(users.filter((u) => u.username !== username))
+      const success = await deleteUser(username)
+      if (success) {
+        // Update local state
+        setUsers(users.filter((u) => u.user_login !== username))
+      }
     } catch (error) {
       console.error("Error deleting user:", error)
     }
   }
 
-  const handleAddUser = async (newUser: User) => {
+  const handleAddUser = async (newUser: Omit<User, "user_id" | "user_dateofcreation">) => {
     try {
-      await addUser(newUser)
-      // Reload users to get the new user
-      await loadUsers()
+      const user = await addUser(newUser)
+      if (user) {
+        // Reload users to get the new user
+        await loadUsers()
+      }
     } catch (error) {
       console.error("Error adding user:", error)
     }
