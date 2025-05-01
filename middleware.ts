@@ -6,7 +6,7 @@ export function middleware(request: NextRequest) {
   // Get the pathname of the request
   const path = request.nextUrl.pathname
 
-  // Check if user is logged in
+  // Check if user is logged in by checking for the currentUser cookie
   const isLoggedIn = request.cookies.has("currentUser")
 
   // Define public paths that don't require authentication
@@ -19,7 +19,27 @@ export function middleware(request: NextRequest) {
 
   // If user is logged in and trying to access login page, redirect to panel
   if (isLoggedIn && isPublicPath) {
-    return NextResponse.redirect(new URL("/panel", request.url))
+    // Get user data to check if admin
+    const userCookie = request.cookies.get("currentUser")
+    if (userCookie) {
+      try {
+        const userData = JSON.parse(userCookie.value)
+
+        // Redirect based on user role and subscription status
+        if (userData.isAdmin) {
+          return NextResponse.redirect(new URL("/admin", request.url))
+        } else if (userData.daysLeft <= 0) {
+          return NextResponse.redirect(new URL("/expired", request.url))
+        } else {
+          return NextResponse.redirect(new URL("/panel", request.url))
+        }
+      } catch (e) {
+        // If there's an error parsing the cookie, clear it and continue to login
+        const response = NextResponse.redirect(new URL("/login", request.url))
+        response.cookies.delete("currentUser")
+        return response
+      }
+    }
   }
 
   return NextResponse.next()

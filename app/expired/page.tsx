@@ -4,21 +4,19 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { User } from "@/lib/types"
+import { getCurrentUser } from "@/lib/auth"
 
 export default function ExpiredPage() {
   const router = useRouter()
 
   useEffect(() => {
     // Check if user is logged in
-    const userJson = localStorage.getItem("currentUser")
+    const user = getCurrentUser()
 
-    if (!userJson) {
+    if (!user) {
       router.push("/login")
       return
     }
-
-    const user = JSON.parse(userJson) as User
 
     // If subscription is not expired or user is admin, redirect
     if (user.daysLeft > 0) {
@@ -29,8 +27,11 @@ export default function ExpiredPage() {
   }, [router])
 
   const handleLogout = () => {
-    localStorage.removeItem("currentUser")
-    router.push("/login")
+    // Use the logout function from auth.ts
+    import("@/lib/auth").then(({ logout }) => {
+      logout()
+      router.push("/login")
+    })
   }
 
   return (

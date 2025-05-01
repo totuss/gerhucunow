@@ -1,9 +1,13 @@
 import type { User } from "./types"
 import { getUsers } from "./users"
+import { getCookie, deleteCookie } from "./cookies"
 
 // Function to get user by credentials
 export async function getUserByCredentials(username: string, password: string): Promise<User | null> {
   try {
+    // Add a small delay to simulate network request
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
     const users = await getUsers()
     return users.find((user) => user.username === username && user.password === password) || null
   } catch (error) {
@@ -16,14 +20,14 @@ export async function getUserByCredentials(username: string, password: string): 
 export function isAuthenticated(): boolean {
   if (typeof window === "undefined") return false
 
-  return localStorage.getItem("currentUser") !== null
+  return getCookie("currentUser") !== null
 }
 
 // Function to check if user is admin
 export function isAdmin(): boolean {
   if (typeof window === "undefined") return false
 
-  const userJson = localStorage.getItem("currentUser")
+  const userJson = getCookie("currentUser")
   if (!userJson) return false
 
   const user = JSON.parse(userJson) as User
@@ -34,7 +38,7 @@ export function isAdmin(): boolean {
 export function getCurrentUser(): User | null {
   if (typeof window === "undefined") return null
 
-  const userJson = localStorage.getItem("currentUser")
+  const userJson = getCookie("currentUser")
   if (!userJson) return null
 
   return JSON.parse(userJson) as User
@@ -44,5 +48,5 @@ export function getCurrentUser(): User | null {
 export function logout(): void {
   if (typeof window === "undefined") return
 
-  localStorage.removeItem("currentUser")
+  deleteCookie("currentUser")
 }

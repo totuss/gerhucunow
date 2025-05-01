@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import AdminPanel from "@/components/admin-panel"
 import type { User } from "@/lib/types"
 import { getAllUsers, updateUser, deleteUser, addUser } from "@/lib/users"
+import { getCurrentUser } from "@/lib/auth"
 
 export default function AdminPage() {
   const router = useRouter()
@@ -13,14 +14,12 @@ export default function AdminPage() {
 
   useEffect(() => {
     // Check if user is logged in and is admin
-    const userJson = localStorage.getItem("currentUser")
+    const user = getCurrentUser()
 
-    if (!userJson) {
+    if (!user) {
       router.push("/login")
       return
     }
-
-    const user = JSON.parse(userJson) as User
 
     if (!user.isAdmin) {
       router.push("/panel")
@@ -86,8 +85,11 @@ export default function AdminPage() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem("currentUser")
-    router.push("/login")
+    // Use the logout function from auth.ts
+    import("@/lib/auth").then(({ logout }) => {
+      logout()
+      router.push("/login")
+    })
   }
 
   if (loading) {
