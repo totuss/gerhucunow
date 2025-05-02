@@ -26,9 +26,11 @@ export function middleware(request: NextRequest) {
         const userData = JSON.parse(userCookie.value)
 
         // Redirect based on user role and subscription status
-        if (userData.isAdmin) {
+        if (userData.is_admin) {
           return NextResponse.redirect(new URL("/admin", request.url))
-        } else if (userData.daysLeft <= 0) {
+        } else if (userData.is_frozen) {
+          return NextResponse.redirect(new URL("/panel", request.url))
+        } else if (userData.days_left <= 0) {
           return NextResponse.redirect(new URL("/expired", request.url))
         } else {
           return NextResponse.redirect(new URL("/panel", request.url))

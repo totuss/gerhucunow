@@ -1,21 +1,5 @@
 import { createClient } from "@/lib/supabase"
-
-export type User = {
-  user_id: number
-  user_login: string
-  user_password: string
-  user_dateofcreation: string
-  is_admin: boolean
-  days_left: number
-  is_frozen: boolean
-}
-
-export type UserStats = {
-  totalUsers: number
-  activeUsers: number
-  frozenUsers: number
-  newUsers: number
-}
+import type { User } from "@/lib/types"
 
 // Format the date to a readable format (DD.MM.YYYY HH:MM)
 export function formatDate(dateString: string): string {
@@ -43,119 +27,183 @@ export function formatDaysLeft(daysLeft: number): string {
   }
 }
 
-export async function getUsers(searchTerm?: string): Promise<User[]> {
-  const supabase = createClient()
+export async function getUsers(): Promise<User[]> {
+  try {
+    const supabase = createClient()
 
-  let query = supabase.from("users").select("*")
+    const { data, error } = await supabase.from("users").select("*").order("user_id", { ascending: true })
 
-  // Add search filter if search term is provided
-  if (searchTerm) {
-    query = query.ilike("user_login", `%${searchTerm}%`)
-  }
+    if (error) {
+      console.error("Error fetching users:", error)
+      return []
+    }
 
-  const { data, error } = await query.order("user_id", { ascending: true })
-
-  if (error) {
-    console.error("Error fetching users:", error)
+    return data as User[]
+  } catch (error) {
+    console.error("Error in getUsers:", error)
     return []
   }
-
-  return data as User[]
 }
 
-export async function getUserStats(): Promise<UserStats> {
-  const supabase = createClient()
+export async function searchUsers(query: string): Promise<User[]> {
+  try {
+    const supabase = createClient()
 
-  // Get total users count
-  const { count: totalUsers, error: totalError } = await supabase
-    .from("users")
-    .select("*", { count: "exact", head: true })
+    // Check if query is a number (potential ID)
+    const isNumeric = /^\d+$/.test(query)
 
-  // Get active users (with positive days_left)
-  const { count: activeUsers, error: activeError } = await supabase
-    .from("users")
-    .select("*", { count: "exact", head: true })
-    .gt("days_left", 0)
-    .eq("is_frozen", false)
+    let queryBuilder = supabase.from("users").select("*")
 
-  // Get frozen users
-  const { count: frozenUsers, error: frozenError } = await supabase
-    .from("users")
-    .select("*", { count: "exact", head: true })
-    .eq("is_frozen", true)
+    if (isNumeric) {
+      // Search by ID or login
+      queryBuilder = queryBuilder.or(`user_id.eq.${query},user_login.ilike.%${query}%`)
+    } else {
+      // Search by login only
+      queryBuilder = queryBuilder.ilike("user_login", `%${query}%`)
+    }
 
-  // Get new users in the last 24 hours
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
+    const { data, error } = await queryBuilder.order("user_id", { ascending: true })
 
-  const { count: newUsers, error: newError } = await supabase
-    .from("users")
-    .select("*", { count: "exact", head: true })
-    .gt("user_dateofcreation", yesterday.toISOString())
+    if (error) {
+      console.error("Error searching users:", error)
+      return []
+    }
 
-  if (totalError || activeError || frozenError || newError) {
-    console.error("Error fetching user stats:", { totalError, activeError, frozenError, newError })
-  }
-
-  return {
-    totalUsers: totalUsers || 0,
-    activeUsers: activeUsers || 0,
-    frozenUsers: frozenUsers || 0,
-    newUsers: newUsers || 0,
+    return data as User[]
+  } catch (error) {
+    console.error("Error in searchUsers:", error)
+    return []
   }
 }
 
-export async function getUserById(userId: number): Promise<User | null> {
-  const supabase = createClient()
+export async function getUserStats(): Promise<{
+  totalUsers: number
+  activeUsers: number
+  frozenUsers: number
+  newUsers: number
+}> {
+  try {
+    const supabase = createClient()
 
-  const { data, error } = await supabase.from("users").select("*").eq("user_id", userId).single()
+    // Get total users count
+    const { count: totalUsers, error: totalError } = await supabase
+      .from("users")
+      .select("*", { count: "exact", head: true })
 
-  if (error) {
-    console.error("Error fetching user:", error)
+    // Get active users (with positive days_left)
+    const { count: activeUsers, error: activeError } = await supabase
+      .from("users")
+      .select("*", { count: "exact", head: true })
+      .gt("days_left", 0)
+      .eq("is_frozen", false)
+
+    // Get frozen users
+    const { count: frozenUsers, error: frozenError } = await supabase
+      .from("users")
+      .select("*", { count: "exact", head: true })
+      .eq("is_frozen", true)
+
+    // Get new users in the last 24 hours
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+
+    const { count: newUsers, error: newError } = await supabase
+      .from("users")
+      .select("*", { count: "exact", head: true })
+      .gt("user_dateofcreation", yesterday.toISOString())
+
+    if (totalError || activeError || frozenError || newError) {
+      console.error("Error fetching user stats:", { totalError, activeError, frozenError, newError })
+    }
+
+    return {
+      totalUsers: totalUsers || 0,
+      activeUsers: activeUsers || 0,
+      frozenUsers: frozenUsers || 0,
+      newUsers: newUsers || 0,
+    }
+  } catch (error) {
+    console.error("Error in getUserStats:", error)
+    return {
+      totalUsers: 0,
+      activeUsers: 0,
+      frozenUsers: 0,
+      newUsers: 0,
+    }
+  }
+}
+
+export async function getUserById(userId: string | number): Promise<User | null> {
+  try {
+    const supabase = createClient()
+
+    const { data, error } = await supabase.from("users").select("*").eq("user_id", userId).single()
+
+    if (error) {
+      console.error("Error fetching user:", error)
+      return null
+    }
+
+    return data as User
+  } catch (error) {
+    console.error("Error in getUserById:", error)
     return null
   }
-
-  return data as User
 }
 
 export async function createUser(user: Omit<User, "user_id" | "user_dateofcreation">): Promise<User | null> {
-  const supabase = createClient()
+  try {
+    const supabase = createClient()
 
-  const { data, error } = await supabase.from("users").insert([user]).select().single()
+    const { data, error } = await supabase.from("users").insert([user]).select().single()
 
-  if (error) {
-    console.error("Error creating user:", error)
+    if (error) {
+      console.error("Error creating user:", error)
+      return null
+    }
+
+    return data as User
+  } catch (error) {
+    console.error("Error in createUser:", error)
     return null
   }
-
-  return data as User
 }
 
 export async function updateUser(
-  userId: number,
+  userId: string | number,
   updates: Partial<Omit<User, "user_id" | "user_dateofcreation">>,
 ): Promise<User | null> {
-  const supabase = createClient()
+  try {
+    const supabase = createClient()
 
-  const { data, error } = await supabase.from("users").update(updates).eq("user_id", userId).select().single()
+    const { data, error } = await supabase.from("users").update(updates).eq("user_id", userId).select().single()
 
-  if (error) {
-    console.error("Error updating user:", error)
+    if (error) {
+      console.error("Error updating user:", error)
+      return null
+    }
+
+    return data as User
+  } catch (error) {
+    console.error("Error in updateUser:", error)
     return null
   }
-
-  return data as User
 }
 
-export async function deleteUser(userId: number): Promise<boolean> {
-  const supabase = createClient()
+export async function deleteUser(userId: string | number): Promise<boolean> {
+  try {
+    const supabase = createClient()
 
-  const { error } = await supabase.from("users").delete().eq("user_id", userId)
+    const { error } = await supabase.from("users").delete().eq("user_id", userId)
 
-  if (error) {
-    console.error("Error deleting user:", error)
+    if (error) {
+      console.error("Error deleting user:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error in deleteUser:", error)
     return false
   }
-
-  return true
 }

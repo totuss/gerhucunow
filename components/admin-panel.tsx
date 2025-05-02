@@ -31,7 +31,7 @@ interface AdminPanelProps {
   isFreezeAllActive: boolean
 }
 
-export default function AdminPanel({
+export function AdminPanel({
   users,
   onUpdateSubscription,
   onUpdateUser,
@@ -81,6 +81,7 @@ export default function AdminPanel({
       user_password: newUser.user_password,
       is_admin: newUser.is_admin,
       days_left: totalDays,
+      is_frozen: false,
     }
 
     // Add user
@@ -104,10 +105,14 @@ export default function AdminPanel({
     // Create updated user object
     const updatedUser: Partial<User> = {
       user_login: editUser.user_login,
-      user_password: editUser.user_password,
-      days_left: totalDays,
       is_admin: editUser.is_admin,
       is_frozen: editUser.is_frozen,
+      days_left: totalDays,
+    }
+
+    // Only include password if it was changed
+    if (editUser.user_password) {
+      updatedUser.user_password = editUser.user_password
     }
 
     // Update user
@@ -149,7 +154,7 @@ export default function AdminPanel({
       originalUsername: user.user_login,
       user_id: user.user_id,
       user_login: user.user_login,
-      user_password: user.user_password || "",
+      user_password: "",
       user_dateofcreation: user.user_dateofcreation,
       days,
       hours,
@@ -464,7 +469,7 @@ export default function AdminPanel({
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-password" className="dark:text-white">
-                Пароль
+                Пароль (оставьте пустым, чтобы не менять)
               </Label>
               <div className="relative">
                 <Input
@@ -515,6 +520,23 @@ export default function AdminPanel({
                     className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
                   />
                 </div>
+              </div>
+              <div className="flex justify-between mt-2">
+                <Button
+                  size="sm"
+                  onClick={() => setEditUser({ ...editUser, days: editUser.days + 7 })}
+                  className="dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white"
+                >
+                  +7д
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setEditUser({ ...editUser, days: Math.max(0, editUser.days - 1) })}
+                  variant="outline"
+                  className="dark:border-[rgb(45,45,48)] dark:text-gray-200"
+                >
+                  -1д
+                </Button>
               </div>
             </div>
             <div className="flex items-center space-x-2">

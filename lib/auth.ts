@@ -1,6 +1,6 @@
 import type { User } from "./types"
 import { getSupabaseClient } from "./supabase"
-import { getCookie, deleteCookie } from "./cookies"
+import { getCookie, setCookie, deleteCookie } from "./cookies"
 
 // Моковые данные для тестирования
 const mockUsers: User[] = [
@@ -30,6 +30,15 @@ const mockUsers: User[] = [
     is_admin: false,
     days_left: 0,
     is_frozen: false,
+  },
+  {
+    user_id: "4",
+    user_login: "frozen",
+    user_password: "frozen",
+    user_dateofcreation: new Date().toISOString(),
+    is_admin: false,
+    days_left: 15,
+    is_frozen: true,
   },
 ]
 
@@ -103,6 +112,7 @@ export async function registerUser(
             user_password: password,
             is_admin: false,
             days_left: 0, // По умолчанию 0 дней подписки
+            is_frozen: false,
           },
         ])
         .select()
@@ -151,6 +161,13 @@ export async function registerUser(
     console.error("Error registering user:", error)
     return { success: false, message: "Ошибка при регистрации пользователя" }
   }
+}
+
+// Функция для обновления данных пользователя в cookie
+export function updateUserInCookie(user: User): void {
+  if (typeof window === "undefined") return
+
+  setCookie("currentUser", JSON.stringify(user), 7) // 7 days expiration
 }
 
 // Функция для проверки аутентификации

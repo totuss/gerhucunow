@@ -1,91 +1,155 @@
-import { Suspense } from "react"
-import { UserStatistics } from "@/components/user-statistics"
-import { UserSearch } from "@/components/user-search"
-import { DataTable } from "@/components/data-table"
-import { getUsers, formatDate, formatDaysLeft } from "@/lib/users"
-import { Button } from "@/components/ui/button"
-import { Plus, Download } from "lucide-react"
-import Link from "next/link"
+"use client"
 
-interface AdminPageProps {
-  searchParams: { search?: string }
-}
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { AdminPanel } from "@/components/admin-panel"
+import { getUsers, updateUser, deleteUser, createUser, searchUsers } from "@/lib/users"
+import { logout } from "@/lib/auth"
+import type { User } from "@/lib/types"
 
-export default async function AdminPage({ searchParams }: AdminPageProps) {
-  const users = await getUsers(searchParams.search)
+export default function AdminPage() {
+  const router = useRouter()
+  const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
+  const [isFreezeAllActive, setIsFreezeAllActive] = useState(false)
 
-  // Define the columns for the user table
-  const columns = [
-    {
-      accessorKey: "user_id",
-      header: "ID",
-    },
-    {
-      accessorKey: "user_login",
-      header: "Логин",
-    },
-    {
-      accessorKey: "user_dateofcreation",
-      header: "Дата создания",
-      cell: ({ row }: any) => formatDate(row.original.user_dateofcreation),
-    },
-    {
-      accessorKey: "days_left",
-      header: "Подписка",
-      cell: ({ row }: any) => formatDaysLeft(row.original.days_left),
-    },
-    {
-      accessorKey: "is_admin",
-      header: "Админ",
-      cell: ({ row }: any) => (row.original.is_admin ? "Да" : "Нет"),
-    },
-    {
-      accessorKey: "is_frozen",
-      header: "Заморожен",
-      cell: ({ row }: any) => (row.original.is_frozen ? "Да" : "Нет"),
-    },
-    {
-      id: "actions",
-      header: "Действия",
-      cell: ({ row }: any) => (
-        <div className="flex space-x-2">
-          <Link href={`/admin/edit/${row.original.user_id}`}>
-            <Button variant="outline" size="sm">
-              Изменить
-            </Button>
-          </Link>
-        </div>
-      ),
-    },
-  ]
+  // Load users on component mount
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const fetchedUsers = await getUsers()
+        setUsers(fetchedUsers)
+
+        // Check if global freeze is active
+        const anyFrozen = fetchedUsers.some((user) => !user.is_admin && user.is_frozen)
+        setIsFreezeAllActive(anyFrozen)
+      } catch (error) {
+        console.error("Error loading users:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadUsers()
+  }, [])
+
+  const handleUpdateSubscription = async (username: string, days: number) => {
+    try {
+      const user = users.find((u) => u.user_login === username)
+      if (!user) return
+
+      const newDaysLeft = Math.max(0, Number(user.days_left) + days)
+
+      const updatedUser = await updateUser(user.user_id, { days_left: newDaysLeft })
+
+      if (updatedUser) {
+        setUsers((prevUsers) => prevUsers.map((u) => (u.user_id === updatedUser.user_id ? updatedUser : u)))
+      }
+    } catch (error) {
+      console.error("Error updating subscription:", error)
+    }
+  }
+
+  const handleUpdateUser = async (originalUsername: string, updatedFields: Partial<User>) => {
+    try {
+      const user = users.find((u) => u.user_login === originalUsername)
+      if (!user) return
+
+      const updatedUser = await updateUser(user.user_id, updatedFields)
+
+      if (updatedUser) {
+        setUsers((prevUsers) => prevUsers.map((u) => (u.user_id === updatedUser.user_id ? updatedUser : u)))
+      }
+    } catch (error) {
+      console.error("Error updating user:", error)
+    }
+  }
+
+  const handleDeleteUser = async (username: string) => {
+    try {
+      const user = users.find((u) => u.user_login === username)
+      if (!user) return
+
+      const success = await deleteUser(user.user_id)
+
+      if (success) {
+        setUsers((prevUsers) => prevUsers.filter((u) => u.user_id !== user.user_id))
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error)
+    }
+  }
+
+  const handleAddUser = async (newUser: Omit<User, "user_id" | "user_dateofcreation">) => {
+    try {
+      const createdUser = await createUser(newUser)
+
+      if (createdUser) {
+        setUsers((prevUsers) => [...prevUsers, createdUser])
+      }
+    } catch (error) {
+      console.error("Error adding user:", error)
+    }
+  }
+
+  const handleSearchUser = async (query: string) => {
+    try {
+      setLoading(true)
+      const searchResults = await searchUsers(query)
+      setUsers(searchResults)
+    } catch (error) {
+      console.error("Error searching users:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleToggleFreezeAll = async (freeze: boolean) => {
+    try {
+      setLoading(true)
+
+      // Update all non-admin users
+      const updatedUsers = []
+      for (const user of users) {
+        if (!user.is_admin) {
+          const updatedUser = await updateUser(user.user_id, { is_frozen: freeze })
+          if (updatedUser) {
+            updatedUsers.push(updatedUser)
+          }
+        } else {
+          updatedUsers.push(user)
+        }
+      }
+
+      setUsers(updatedUsers)
+      setIsFreezeAllActive(freeze)
+    } catch (error) {
+      console.error("Error toggling freeze all:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleLogout = () => {
+    logout()
+    router.push("/login")
+  }
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Загрузка...</div>
+  }
 
   return (
-    <div className="container mx-auto py-10 space-y-8">
-      <h1 className="text-3xl font-bold">Администрирование пользователей</h1>
-
-      <Suspense fallback={<div>Загрузка статистики...</div>}>
-        <UserStatistics />
-      </Suspense>
-
-      <div className="flex justify-between items-center">
-        <UserSearch />
-        <div className="flex space-x-2">
-          <Link href="/admin/add">
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить пользователя
-            </Button>
-          </Link>
-          <Link href="/admin/export">
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Экспорт
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      <DataTable columns={columns} data={users} />
-    </div>
+    <AdminPanel
+      users={users}
+      onUpdateSubscription={handleUpdateSubscription}
+      onUpdateUser={handleUpdateUser}
+      onDeleteUser={handleDeleteUser}
+      onAddUser={handleAddUser}
+      onSearchUser={handleSearchUser}
+      onToggleFreezeAll={handleToggleFreezeAll}
+      onLogout={handleLogout}
+      isFreezeAllActive={isFreezeAllActive}
+    />
   )
 }
