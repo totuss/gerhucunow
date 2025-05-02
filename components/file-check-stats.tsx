@@ -503,8 +503,8 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center">
             <h1 className="text-3xl font-bold text-center">qTools</h1>
-            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400 border-l border-gray-300 dark:border-gray-600 pl-2">
-              | {currentUser?.daysLeft ? formatTimeLeft(currentUser.daysLeft) : "0 дней"}
+            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+              {currentUser?.daysLeft ? formatTimeLeft(currentUser.daysLeft) : "0 дней"}
             </span>
           </div>
           <div className="flex gap-2">

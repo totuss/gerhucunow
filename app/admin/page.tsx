@@ -1,117 +1,91 @@
-"use client"
+import { Suspense } from "react"
+import { UserStatistics } from "@/components/user-statistics"
+import { UserSearch } from "@/components/user-search"
+import { DataTable } from "@/components/data-table"
+import { getUsers, formatDate, formatDaysLeft } from "@/lib/users"
+import { Button } from "@/components/ui/button"
+import { Plus, Download } from "lucide-react"
+import Link from "next/link"
 
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import AdminPanel from "@/components/admin-panel"
-import type { User } from "@/lib/types"
-import { getAllUsers, updateUser, deleteUser, addUser } from "@/lib/users"
-import { getCurrentUser } from "@/lib/auth"
+interface AdminPageProps {
+  searchParams: { search?: string }
+}
 
-export default function AdminPage() {
-  const router = useRouter()
-  const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
+export default async function AdminPage({ searchParams }: AdminPageProps) {
+  const users = await getUsers(searchParams.search)
 
-  useEffect(() => {
-    // Check if user is logged in and is admin
-    const user = getCurrentUser()
-
-    if (!user) {
-      router.push("/login")
-      return
-    }
-
-    if (!user.is_admin) {
-      router.push("/panel")
-      return
-    }
-
-    // Load all users
-    loadUsers()
-  }, [router])
-
-  const loadUsers = async () => {
-    try {
-      const allUsers = await getAllUsers()
-      setUsers(allUsers)
-      setLoading(false)
-    } catch (error) {
-      console.error("Error loading users:", error)
-    }
-  }
-
-  const handleUpdateSubscription = async (username: string, days: number) => {
-    try {
-      const user = users.find((u) => u.user_login === username)
-      if (user) {
-        const updatedDaysLeft = Math.max(0, user.days_left + days)
-        const success = await updateUser(username, { days_left: updatedDaysLeft })
-
-        if (success) {
-          // Update local state
-          setUsers(users.map((u) => (u.user_login === username ? { ...u, days_left: updatedDaysLeft } : u)))
-        }
-      }
-    } catch (error) {
-      console.error("Error updating subscription:", error)
-    }
-  }
-
-  const handleUpdateUser = async (originalUsername: string, updatedUser: Partial<User>) => {
-    try {
-      const success = await updateUser(originalUsername, updatedUser)
-      if (success) {
-        await loadUsers() // Reload all users to get fresh data
-      }
-    } catch (error) {
-      console.error("Error updating user:", error)
-    }
-  }
-
-  const handleDeleteUser = async (username: string) => {
-    try {
-      const success = await deleteUser(username)
-      if (success) {
-        // Update local state
-        setUsers(users.filter((u) => u.user_login !== username))
-      }
-    } catch (error) {
-      console.error("Error deleting user:", error)
-    }
-  }
-
-  const handleAddUser = async (newUser: Omit<User, "user_id" | "user_dateofcreation">) => {
-    try {
-      const user = await addUser(newUser)
-      if (user) {
-        // Reload users to get the new user
-        await loadUsers()
-      }
-    } catch (error) {
-      console.error("Error adding user:", error)
-    }
-  }
-
-  const handleLogout = () => {
-    // Use the logout function from auth.ts
-    import("@/lib/auth").then(({ logout }) => {
-      logout()
-      router.push("/login")
-    })
-  }
-
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Загрузка...</div>
-  }
+  // Define the columns for the user table
+  const columns = [
+    {
+      accessorKey: "user_id",
+      header: "ID",
+    },
+    {
+      accessorKey: "user_login",
+      header: "Логин",
+    },
+    {
+      accessorKey: "user_dateofcreation",
+      header: "Дата создания",
+      cell: ({ row }: any) => formatDate(row.original.user_dateofcreation),
+    },
+    {
+      accessorKey: "days_left",
+      header: "Подписка",
+      cell: ({ row }: any) => formatDaysLeft(row.original.days_left),
+    },
+    {
+      accessorKey: "is_admin",
+      header: "Админ",
+      cell: ({ row }: any) => (row.original.is_admin ? "Да" : "Нет"),
+    },
+    {
+      accessorKey: "is_frozen",
+      header: "Заморожен",
+      cell: ({ row }: any) => (row.original.is_frozen ? "Да" : "Нет"),
+    },
+    {
+      id: "actions",
+      header: "Действия",
+      cell: ({ row }: any) => (
+        <div className="flex space-x-2">
+          <Link href={`/admin/edit/${row.original.user_id}`}>
+            <Button variant="outline" size="sm">
+              Изменить
+            </Button>
+          </Link>
+        </div>
+      ),
+    },
+  ]
 
   return (
-    <AdminPanel
-      users={users}
-      onUpdateSubscription={handleUpdateSubscription}
-      onUpdateUser={handleUpdateUser}
-      onDeleteUser={handleDeleteUser}
-      onAddUser={handleAddUser}
-      onLogout={handleLogout}
-    />
+    <div className="container mx-auto py-10 space-y-8">
+      <h1 className="text-3xl font-bold">Администрирование пользователей</h1>
+
+      <Suspense fallback={<div>Загрузка статистики...</div>}>
+        <UserStatistics />
+      </Suspense>
+
+      <div className="flex justify-between items-center">
+        <UserSearch />
+        <div className="flex space-x-2">
+          <Link href="/admin/add">
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить пользователя
+            </Button>
+          </Link>
+          <Link href="/admin/export">
+            <Button variant="outline">
+              <Download className="mr-2 h-4 w-4" />
+              Экспорт
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      <DataTable columns={columns} data={users} />
+    </div>
   )
 }

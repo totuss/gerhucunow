@@ -15,9 +15,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Search, Info, Snowflake, Sun } from "lucide-react"
 import type { User } from "@/lib/types"
-import { formatTimeLeft } from "@/lib/types"
+import { formatTimeLeft, formatDate } from "@/lib/types"
 
 interface AdminPanelProps {
   users: User[]
@@ -25,7 +25,10 @@ interface AdminPanelProps {
   onUpdateUser: (originalUsername: string, updatedUser: Partial<User>) => void
   onDeleteUser: (username: string) => void
   onAddUser: (user: Omit<User, "user_id" | "user_dateofcreation">) => void
+  onSearchUser: (query: string) => void
+  onToggleFreezeAll: (freeze: boolean) => void
   onLogout: () => void
+  isFreezeAllActive: boolean
 }
 
 export default function AdminPanel({
@@ -34,9 +37,13 @@ export default function AdminPanel({
   onUpdateUser,
   onDeleteUser,
   onAddUser,
+  onSearchUser,
+  onToggleFreezeAll,
   onLogout,
+  isFreezeAllActive,
 }: AdminPanelProps) {
   const [selectedUsername, setSelectedUsername] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showPasswordField, setShowPasswordField] = useState(false)
   const [showAddUser, setShowAddUser] = useState(false)
@@ -48,24 +55,25 @@ export default function AdminPanel({
     user_password: "",
     days: 0,
     hours: 0,
-    minutes: 0,
     is_admin: false,
   })
 
   // Edit user form state
   const [editUser, setEditUser] = useState({
     originalUsername: "",
+    user_id: "",
     user_login: "",
     user_password: "",
+    user_dateofcreation: "",
     days: 0,
     hours: 0,
-    minutes: 0,
     is_admin: false,
+    is_frozen: false,
   })
 
   const handleAddUser = () => {
-    // Calculate total days including hours and minutes
-    const totalDays = newUser.days + newUser.hours / 24 + newUser.minutes / 1440
+    // Calculate total days including hours
+    const totalDays = newUser.days + newUser.hours / 24
 
     // Create new user object
     const user = {
@@ -85,14 +93,13 @@ export default function AdminPanel({
       user_password: "",
       days: 0,
       hours: 0,
-      minutes: 0,
       is_admin: false,
     })
   }
 
   const handleEditUser = () => {
-    // Calculate total days including hours and minutes
-    const totalDays = editUser.days + editUser.hours / 24 + editUser.minutes / 1440
+    // Calculate total days including hours
+    const totalDays = editUser.days + editUser.hours / 24
 
     // Create updated user object
     const updatedUser: Partial<User> = {
@@ -100,6 +107,7 @@ export default function AdminPanel({
       user_password: editUser.user_password,
       days_left: totalDays,
       is_admin: editUser.is_admin,
+      is_frozen: editUser.is_frozen,
     }
 
     // Update user
@@ -122,22 +130,33 @@ export default function AdminPanel({
   const handleSelectUser = () => {
     const user = users.find((u) => u.user_login === selectedUsername)
     if (user) {
-      // Convert days to days, hours, minutes
-      const days = Math.floor(user.days_left)
-      const hours = Math.floor((user.days_left - days) * 24)
-      const minutes = Math.floor(((user.days_left - days) * 24 - hours) * 60)
-
-      setEditUser({
-        originalUsername: user.user_login,
-        user_login: user.user_login,
-        user_password: user.user_password || "",
-        days,
-        hours,
-        minutes,
-        is_admin: user.is_admin,
-      })
-      setShowEditUser(true)
+      openUserInfo(user)
     }
+  }
+
+  const handleSearch = () => {
+    if (searchQuery.trim()) {
+      onSearchUser(searchQuery.trim())
+    }
+  }
+
+  const openUserInfo = (user: User) => {
+    // Convert days to days and hours
+    const days = Math.floor(user.days_left)
+    const hours = Math.floor((user.days_left - days) * 24)
+
+    setEditUser({
+      originalUsername: user.user_login,
+      user_id: user.user_id,
+      user_login: user.user_login,
+      user_password: user.user_password || "",
+      user_dateofcreation: user.user_dateofcreation,
+      days,
+      hours,
+      is_admin: user.is_admin,
+      is_frozen: user.is_frozen || false,
+    })
+    setShowEditUser(true)
   }
 
   return (
@@ -154,27 +173,44 @@ export default function AdminPanel({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <Card className="md:col-span-2 dark:bg-[rgb(32,32,35)] dark:border-[rgb(45,45,48)]">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Пользователи</CardTitle>
+              <Button
+                onClick={() => onToggleFreezeAll(!isFreezeAllActive)}
+                variant="outline"
+                className={`flex items-center gap-2 ${isFreezeAllActive ? "text-blue-500 dark:text-blue-400" : ""}`}
+              >
+                {isFreezeAllActive ? (
+                  <>
+                    <Sun className="h-4 w-4" />
+                    Разморозить всех
+                  </>
+                ) : (
+                  <>
+                    <Snowflake className="h-4 w-4" />
+                    Заморозить всех
+                  </>
+                )}
+              </Button>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow className="dark:border-[rgb(45,45,48)]">
+                    <TableHead className="dark:text-gray-300">ID</TableHead>
                     <TableHead className="dark:text-gray-300">Логин</TableHead>
-                    <TableHead className="dark:text-gray-300">Пароль</TableHead>
-                    <TableHead className="dark:text-gray-300">Оставшееся время</TableHead>
+                    <TableHead className="dark:text-gray-300">Подписка</TableHead>
                     <TableHead className="dark:text-gray-300">Действия</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {users.map((user) => (
                     <TableRow key={user.user_id} className="dark:border-[rgb(45,45,48)]">
-                      <TableCell className="font-medium dark:text-white">{user.user_login}</TableCell>
-                      <TableCell className="dark:text-white">
-                        <div className="flex items-center">
-                          <span className="blur-sm hover:blur-none transition-all">{user.user_password}</span>
-                        </div>
+                      <TableCell className="font-medium dark:text-white">{user.user_id}</TableCell>
+                      <TableCell className="font-medium dark:text-white">
+                        {user.user_login}
+                        {user.is_admin && <span className="ml-2 text-xs text-blue-500">(админ)</span>}
+                        {user.is_frozen && <span className="ml-2 text-xs text-blue-500">(заморожен)</span>}
                       </TableCell>
                       <TableCell className="dark:text-white">
                         {user.days_left > 0 ? (
@@ -187,10 +223,10 @@ export default function AdminPanel({
                         <div className="flex gap-2 flex-wrap">
                           <Button
                             size="sm"
-                            onClick={() => onUpdateSubscription(user.user_login, 30)}
+                            onClick={() => openUserInfo(user)}
                             className="dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white"
                           >
-                            +30д
+                            <Info className="h-4 w-4" />
                           </Button>
                           <Button
                             size="sm"
@@ -206,14 +242,6 @@ export default function AdminPanel({
                             className="dark:border-[rgb(45,45,48)] dark:text-gray-200"
                           >
                             -1д
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleRemoveSubscription(user.user_login)}
-                            variant="outline"
-                            className="dark:border-[rgb(45,45,48)] dark:text-red-400"
-                          >
-                            Убрать
                           </Button>
                           <Button
                             size="sm"
@@ -248,6 +276,26 @@ export default function AdminPanel({
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="search" className="dark:text-white">
+                    Поиск по ID или логину
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
+                      placeholder="Введите ID или логин"
+                    />
+                    <Button onClick={handleSearch} className="px-3">
+                      <Search className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator className="my-4 dark:bg-[rgb(45,45,48)]" />
+
                 <div className="space-y-2">
                   <Label htmlFor="username" className="dark:text-white">
                     Логин пользователя
@@ -332,7 +380,7 @@ export default function AdminPanel({
             </div>
             <div className="space-y-2">
               <Label className="dark:text-white">Время подписки</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label htmlFor="new-days" className="text-xs dark:text-gray-300">
                     Дни
@@ -357,20 +405,6 @@ export default function AdminPanel({
                     max="23"
                     value={newUser.hours}
                     onChange={(e) => setNewUser({ ...newUser, hours: Number.parseInt(e.target.value) || 0 })}
-                    className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="new-minutes" className="text-xs dark:text-gray-300">
-                    Минуты
-                  </Label>
-                  <Input
-                    id="new-minutes"
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={newUser.minutes}
-                    onChange={(e) => setNewUser({ ...newUser, minutes: Number.parseInt(e.target.value) || 0 })}
                     className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
                   />
                 </div>
@@ -399,9 +433,24 @@ export default function AdminPanel({
       <Dialog open={showEditUser} onOpenChange={setShowEditUser}>
         <DialogContent className="dark:bg-[rgb(32,32,35)] dark:border-[rgb(45,45,48)]">
           <DialogHeader>
-            <DialogTitle className="dark:text-white">Редактировать пользователя</DialogTitle>
+            <DialogTitle className="dark:text-white">Информация о пользователе</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs dark:text-gray-400">ID пользователя</Label>
+                <div className="font-medium dark:text-white">{editUser.user_id}</div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs dark:text-gray-400">Дата создания</Label>
+                <div className="font-medium dark:text-white">
+                  {editUser.user_dateofcreation ? formatDate(editUser.user_dateofcreation) : "Нет данных"}
+                </div>
+              </div>
+            </div>
+
+            <Separator className="my-2 dark:bg-[rgb(45,45,48)]" />
+
             <div className="space-y-2">
               <Label htmlFor="edit-username" className="dark:text-white">
                 Логин
@@ -438,7 +487,7 @@ export default function AdminPanel({
             </div>
             <div className="space-y-2">
               <Label className="dark:text-white">Оставшееся время</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label htmlFor="edit-days" className="text-xs dark:text-gray-300">
                     Дни
@@ -466,20 +515,6 @@ export default function AdminPanel({
                     className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="edit-minutes" className="text-xs dark:text-gray-300">
-                    Минуты
-                  </Label>
-                  <Input
-                    id="edit-minutes"
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={editUser.minutes}
-                    onChange={(e) => setEditUser({ ...editUser, minutes: Number.parseInt(e.target.value) || 0 })}
-                    className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
-                  />
-                </div>
               </div>
             </div>
             <div className="flex items-center space-x-2">
@@ -492,6 +527,18 @@ export default function AdminPanel({
               />
               <Label htmlFor="edit-is-admin" className="dark:text-white">
                 Администратор
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="edit-is-frozen"
+                checked={editUser.is_frozen}
+                onChange={(e) => setEditUser({ ...editUser, is_frozen: e.target.checked })}
+                className="rounded dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)]"
+              />
+              <Label htmlFor="edit-is-frozen" className="dark:text-white">
+                Заморозить подписку
               </Label>
             </div>
             <div className="flex gap-2">

@@ -1,144 +1,161 @@
-import type { User } from "./types"
-import { getSupabaseClient } from "./supabase"
+import { createClient } from "@/lib/supabase"
 
-// Функция для получения всех пользователей
-export async function getUsers(): Promise<User[]> {
-  try {
-    const supabase = getSupabaseClient()
+export type User = {
+  user_id: number
+  user_login: string
+  user_password: string
+  user_dateofcreation: string
+  is_admin: boolean
+  days_left: number
+  is_frozen: boolean
+}
 
-    const { data, error } = await supabase.from("users").select("*")
+export type UserStats = {
+  totalUsers: number
+  activeUsers: number
+  frozenUsers: number
+  newUsers: number
+}
 
-    if (error) {
-      console.error("Error getting users:", error)
-      return []
-    }
+// Format the date to a readable format (DD.MM.YYYY HH:MM)
+export function formatDate(dateString: string): string {
+  const date = new Date(dateString)
+  const day = date.getDate().toString().padStart(2, "0")
+  const month = (date.getMonth() + 1).toString().padStart(2, "0")
+  const year = date.getFullYear()
+  const hours = date.getHours().toString().padStart(2, "0")
+  const minutes = date.getMinutes().toString().padStart(2, "0")
 
-    // Преобразуем данные из БД в формат User[]
-    return data.map((user) => ({
-      user_id: user.user_id,
-      user_login: user.user_login,
-      user_password: user.user_password,
-      user_dateofcreation: user.user_dateofcreation,
-      is_admin: user.is_admin,
-      days_left: Number(user.days_left),
-    }))
-  } catch (error) {
-    console.error("Error getting users:", error)
+  return `${day}.${month}.${year} ${hours}:${minutes}`
+}
+
+// Format days_left to show days and hours
+export function formatDaysLeft(daysLeft: number): string {
+  const days = Math.floor(daysLeft)
+  const hours = Math.round((daysLeft - days) * 24)
+
+  if (days === 0) {
+    return `${hours} ч.`
+  } else if (hours === 0) {
+    return `${days} д.`
+  } else {
+    return `${days} д. ${hours} ч.`
+  }
+}
+
+export async function getUsers(searchTerm?: string): Promise<User[]> {
+  const supabase = createClient()
+
+  let query = supabase.from("users").select("*")
+
+  // Add search filter if search term is provided
+  if (searchTerm) {
+    query = query.ilike("user_login", `%${searchTerm}%`)
+  }
+
+  const { data, error } = await query.order("user_id", { ascending: true })
+
+  if (error) {
+    console.error("Error fetching users:", error)
     return []
   }
+
+  return data as User[]
 }
 
-// Функция для получения пользователя по логину
-export async function getUserByUsername(username: string): Promise<User | null> {
-  try {
-    const supabase = getSupabaseClient()
+export async function getUserStats(): Promise<UserStats> {
+  const supabase = createClient()
 
-    const { data, error } = await supabase.from("users").select("*").eq("user_login", username).single()
+  // Get total users count
+  const { count: totalUsers, error: totalError } = await supabase
+    .from("users")
+    .select("*", { count: "exact", head: true })
 
-    if (error || !data) {
-      console.error("Error getting user by username:", error)
-      return null
-    }
+  // Get active users (with positive days_left)
+  const { count: activeUsers, error: activeError } = await supabase
+    .from("users")
+    .select("*", { count: "exact", head: true })
+    .gt("days_left", 0)
+    .eq("is_frozen", false)
 
-    // Преобразуем данные из БД в формат User
-    return {
-      user_id: data.user_id,
-      user_login: data.user_login,
-      user_password: data.user_password,
-      user_dateofcreation: data.user_dateofcreation,
-      is_admin: data.is_admin,
-      days_left: Number(data.days_left),
-    }
-  } catch (error) {
-    console.error("Error getting user by username:", error)
-    return null
+  // Get frozen users
+  const { count: frozenUsers, error: frozenError } = await supabase
+    .from("users")
+    .select("*", { count: "exact", head: true })
+    .eq("is_frozen", true)
+
+  // Get new users in the last 24 hours
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  const { count: newUsers, error: newError } = await supabase
+    .from("users")
+    .select("*", { count: "exact", head: true })
+    .gt("user_dateofcreation", yesterday.toISOString())
+
+  if (totalError || activeError || frozenError || newError) {
+    console.error("Error fetching user stats:", { totalError, activeError, frozenError, newError })
+  }
+
+  return {
+    totalUsers: totalUsers || 0,
+    activeUsers: activeUsers || 0,
+    frozenUsers: frozenUsers || 0,
+    newUsers: newUsers || 0,
   }
 }
 
-// Функция для получения всех пользователей
-export async function getAllUsers(): Promise<User[]> {
-  return getUsers()
-}
+export async function getUserById(userId: number): Promise<User | null> {
+  const supabase = createClient()
 
-// Функция для добавления нового пользователя
-export async function addUser(user: Omit<User, "user_id" | "user_dateofcreation">): Promise<User | null> {
-  try {
-    const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from("users").select("*").eq("user_id", userId).single()
 
-    const { data, error } = await supabase
-      .from("users")
-      .insert([
-        {
-          user_login: user.user_login,
-          user_password: user.user_password,
-          is_admin: user.is_admin,
-          days_left: user.days_left,
-        },
-      ])
-      .select()
-
-    if (error || !data || data.length === 0) {
-      console.error("Error adding user:", error)
-      return null
-    }
-
-    // Преобразуем данные из БД в формат User
-    return {
-      user_id: data[0].user_id,
-      user_login: data[0].user_login,
-      user_password: data[0].user_password,
-      user_dateofcreation: data[0].user_dateofcreation,
-      is_admin: data[0].is_admin,
-      days_left: Number(data[0].days_left),
-    }
-  } catch (error) {
-    console.error("Error adding user:", error)
+  if (error) {
+    console.error("Error fetching user:", error)
     return null
   }
+
+  return data as User
 }
 
-// Функция для обновления пользователя
-export async function updateUser(username: string, updatedFields: Partial<User>): Promise<boolean> {
-  try {
-    const supabase = getSupabaseClient()
+export async function createUser(user: Omit<User, "user_id" | "user_dateofcreation">): Promise<User | null> {
+  const supabase = createClient()
 
-    // Подготавливаем объект с обновляемыми полями
-    const updateData: any = {}
+  const { data, error } = await supabase.from("users").insert([user]).select().single()
 
-    if (updatedFields.user_login) updateData.user_login = updatedFields.user_login
-    if (updatedFields.user_password) updateData.user_password = updatedFields.user_password
-    if (updatedFields.is_admin !== undefined) updateData.is_admin = updatedFields.is_admin
-    if (updatedFields.days_left !== undefined) updateData.days_left = updatedFields.days_left
+  if (error) {
+    console.error("Error creating user:", error)
+    return null
+  }
 
-    const { error } = await supabase.from("users").update(updateData).eq("user_login", username)
+  return data as User
+}
 
-    if (error) {
-      console.error("Error updating user:", error)
-      return false
-    }
+export async function updateUser(
+  userId: number,
+  updates: Partial<Omit<User, "user_id" | "user_dateofcreation">>,
+): Promise<User | null> {
+  const supabase = createClient()
 
-    return true
-  } catch (error) {
+  const { data, error } = await supabase.from("users").update(updates).eq("user_id", userId).select().single()
+
+  if (error) {
     console.error("Error updating user:", error)
-    return false
+    return null
   }
+
+  return data as User
 }
 
-// Функция для удаления пользователя
-export async function deleteUser(username: string): Promise<boolean> {
-  try {
-    const supabase = getSupabaseClient()
+export async function deleteUser(userId: number): Promise<boolean> {
+  const supabase = createClient()
 
-    const { error } = await supabase.from("users").delete().eq("user_login", username)
+  const { error } = await supabase.from("users").delete().eq("user_id", userId)
 
-    if (error) {
-      console.error("Error deleting user:", error)
-      return false
-    }
-
-    return true
-  } catch (error) {
+  if (error) {
     console.error("Error deleting user:", error)
     return false
   }
+
+  return true
 }
