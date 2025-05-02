@@ -25,7 +25,7 @@ interface AdminPanelProps {
   onUpdateUser: (originalUsername: string, updatedUser: Partial<User>) => void
   onDeleteUser: (username: string) => void
   onAddUser: (user: Omit<User, "user_id" | "user_dateofcreation">) => void
-  onSearchUser: (query: string) => void
+  onSearchUser: (query: string, type: "id" | "login") => void
   onToggleFreezeAll: (freeze: boolean) => void
   onLogout: () => void
   isFreezeAllActive: boolean
@@ -42,12 +42,13 @@ export function AdminPanel({
   onLogout,
   isFreezeAllActive,
 }: AdminPanelProps) {
-  const [selectedUsername, setSelectedUsername] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
+  const [searchIdQuery, setSearchIdQuery] = useState("")
+  const [searchLoginQuery, setSearchLoginQuery] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showPasswordField, setShowPasswordField] = useState(false)
   const [showAddUser, setShowAddUser] = useState(false)
   const [showEditUser, setShowEditUser] = useState(false)
+  const [selectedUsername, setSelectedUsername] = useState("")
 
   // New user form state
   const [newUser, setNewUser] = useState({
@@ -132,16 +133,15 @@ export function AdminPanel({
     }
   }
 
-  const handleSelectUser = () => {
-    const user = users.find((u) => u.user_login === selectedUsername)
-    if (user) {
-      openUserInfo(user)
+  const handleSearchById = () => {
+    if (searchIdQuery.trim()) {
+      onSearchUser(searchIdQuery.trim(), "id")
     }
   }
 
-  const handleSearch = () => {
-    if (searchQuery.trim()) {
-      onSearchUser(searchQuery.trim())
+  const handleSearchByLogin = () => {
+    if (searchLoginQuery.trim()) {
+      onSearchUser(searchLoginQuery.trim(), "login")
     }
   }
 
@@ -154,7 +154,7 @@ export function AdminPanel({
       originalUsername: user.user_login,
       user_id: user.user_id,
       user_login: user.user_login,
-      user_password: "",
+      user_password: user.user_password || "",
       user_dateofcreation: user.user_dateofcreation,
       days,
       hours,
@@ -275,46 +275,45 @@ export function AdminPanel({
             </CardContent>
           </Card>
 
-          <Card className="dark:bg-[rgb(32,32,35)] dark:border-[rgb(45,45,48)]">
+          <Card className="dark:bg-[rgb(32,32,35)] dark:border-[rgb(45,45,48)] h-[300px]">
             <CardHeader>
               <CardTitle>Управление</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="search" className="dark:text-white">
-                    Поиск по ID или логину
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="search"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
-                      placeholder="Введите ID или логин"
-                    />
-                    <Button onClick={handleSearch} className="px-3">
-                      <Search className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <Separator className="my-4 dark:bg-[rgb(45,45,48)]" />
-
-                <div className="space-y-2">
-                  <Label htmlFor="username" className="dark:text-white">
-                    Логин пользователя
-                  </Label>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="search-id" className="dark:text-white">
+                  Поиск по ID
+                </Label>
+                <div className="flex gap-2">
                   <Input
-                    id="username"
-                    value={selectedUsername}
-                    onChange={(e) => setSelectedUsername(e.target.value)}
+                    id="search-id"
+                    value={searchIdQuery}
+                    onChange={(e) => setSearchIdQuery(e.target.value)}
                     className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
+                    placeholder="Введите ID"
                   />
+                  <Button onClick={handleSearchById} className="px-3">
+                    <Search className="h-4 w-4" />
+                  </Button>
                 </div>
-                <Button onClick={handleSelectUser} className="w-full">
-                  Выбрать пользователя
-                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="search-login" className="dark:text-white">
+                  Поиск по логину
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="search-login"
+                    value={searchLoginQuery}
+                    onChange={(e) => setSearchLoginQuery(e.target.value)}
+                    className="dark:bg-[rgb(40,40,45)] dark:border-[rgb(45,45,48)] dark:text-white"
+                    placeholder="Введите логин"
+                  />
+                  <Button onClick={handleSearchByLogin} className="px-3">
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -469,7 +468,7 @@ export function AdminPanel({
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-password" className="dark:text-white">
-                Пароль (оставьте пустым, чтобы не менять)
+                Пароль
               </Label>
               <div className="relative">
                 <Input

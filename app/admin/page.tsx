@@ -92,10 +92,10 @@ export default function AdminPage() {
     }
   }
 
-  const handleSearchUser = async (query: string) => {
+  const handleSearchUser = async (query: string, type: "id" | "login") => {
     try {
       setLoading(true)
-      const searchResults = await searchUsers(query)
+      const searchResults = await searchUsers(query, type)
       setUsers(searchResults)
     } catch (error) {
       console.error("Error searching users:", error)

@@ -45,20 +45,21 @@ export async function getUsers(): Promise<User[]> {
   }
 }
 
-export async function searchUsers(query: string): Promise<User[]> {
+export async function searchUsers(query: string, type: "id" | "login"): Promise<User[]> {
   try {
     const supabase = createClient()
 
-    // Check if query is a number (potential ID)
-    const isNumeric = /^\d+$/.test(query)
-
     let queryBuilder = supabase.from("users").select("*")
 
-    if (isNumeric) {
-      // Search by ID or login
-      queryBuilder = queryBuilder.or(`user_id.eq.${query},user_login.ilike.%${query}%`)
+    if (type === "id") {
+      // Search by ID only if it's numeric
+      if (/^\d+$/.test(query)) {
+        queryBuilder = queryBuilder.eq("user_id", query)
+      } else {
+        return [] // If searching by ID but query is not numeric, return empty
+      }
     } else {
-      // Search by login only
+      // Search by login
       queryBuilder = queryBuilder.ilike("user_login", `%${query}%`)
     }
 

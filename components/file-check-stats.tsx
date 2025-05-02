@@ -3,7 +3,20 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { Upload, Play, Pause, Trash2, FileText, BarChart3, Sun, Moon, Settings, Clock, ChevronDown } from "lucide-react"
+import {
+  Upload,
+  Play,
+  Pause,
+  Trash2,
+  FileText,
+  BarChart3,
+  Sun,
+  Moon,
+  Settings,
+  Clock,
+  ChevronDown,
+  ArrowDown,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -17,28 +30,28 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import type { User, LogEntry, Account } from "@/lib/types"
+import { formatTimeLeft } from "@/lib/types"
 
 interface FileCheckStatisticsProps {
   currentUser: User | null
   onLogout: () => void
 }
 
-// Helper function to format time left
-const formatTimeLeft = (days: number): string => {
-  return `${days} дней`
-}
-
 export default function FileCheckStatistics({ currentUser, onLogout }: FileCheckStatisticsProps) {
   const [file, setFile] = useState<File | null>(null)
   const [isChecking, setIsChecking] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [mode, setMode] = useState("checker")
   const [theme, setTheme] = useState("light")
   const [startTime, setStartTime] = useState<Date | null>(null)
   const [elapsedTime, setElapsedTime] = useState("00:00")
+  const [autoScroll, setAutoScroll] = useState(true)
+  const [selectedTopAccount, setSelectedTopAccount] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
+  const logsScrollAreaRef = useRef<HTMLDivElement>(null)
   const [sortBy, setSortBy] = useState<keyof Account>("rap")
   const [topAccounts, setTopAccounts] = useState<Account[]>([])
 
@@ -165,6 +178,14 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
     }
   }, [dropZoneRef.current])
 
+  // Auto-scroll logs when new logs are added
+  useEffect(() => {
+    if (autoScroll && logsScrollAreaRef.current && logs.length > 0) {
+      const scrollArea = logsScrollAreaRef.current
+      scrollArea.scrollTop = scrollArea.scrollHeight
+    }
+  }, [logs, autoScroll])
+
   // Format elapsed time to minutes:seconds
   const formatElapsedTime = (startTime: Date) => {
     const now = new Date()
@@ -252,7 +273,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
           }
           return (b[sortBy] as number) - (a[sortBy] as number)
         })
-        .slice(0, 1)
+        .slice(0, 3) // Keep top 3 accounts
     })
   }
 
@@ -271,6 +292,25 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
 
   const startCheck = () => {
     if (!file) return
+
+    // If paused, just resume
+    if (isPaused) {
+      setIsPaused(false)
+      setIsChecking(true)
+
+      // Resume timer
+      if (startTime) {
+        timerRef.current = setInterval(() => {
+          setElapsedTime(formatElapsedTime(startTime))
+        }, 1000)
+      }
+
+      // Resume progress simulation
+      simulateProgress()
+
+      addLog(`Проверка возобновлена`)
+      return
+    }
 
     setIsChecking(true)
     setProgress(0)
@@ -326,6 +366,11 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
       clearInterval(intervalRef.current)
     }
 
+    // Start progress simulation
+    simulateProgress()
+  }
+
+  const simulateProgress = () => {
     // Simulate progress and update statistics
     intervalRef.current = setInterval(() => {
       setProgress((prev) => {
@@ -394,6 +439,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
           clearInterval(intervalRef.current!)
           clearInterval(timerRef.current!)
           setIsChecking(false)
+          setIsPaused(false)
           addLog(mode === "checker" ? "Проверка завершена" : "Обновление завершено")
 
           // If Telegram settings are configured, log notification
@@ -425,8 +471,9 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
       timerRef.current = null
     }
 
+    setIsPaused(true)
     setIsChecking(false)
-    addLog(mode === "checker" ? "Проверка остановлена" : "Обновление остановлена")
+    addLog(mode === "checker" ? "Проверка приостановлена" : "Обновление приостановлено")
   }
 
   const clearLogs = () => {
@@ -435,6 +482,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
     setFile(null)
     setElapsedTime("00:00")
     setTopAccounts([])
+    setIsPaused(false)
 
     // Reset file input
     if (fileInputRef.current) {
@@ -497,14 +545,33 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
     }
   }
 
+  // Handle scroll in logs area
+  const handleLogsScroll = () => {
+    if (logsScrollAreaRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = logsScrollAreaRef.current
+      // If user scrolls up, disable auto-scroll
+      if (scrollHeight - scrollTop - clientHeight > 50) {
+        setAutoScroll(false)
+      }
+    }
+  }
+
+  // Enable auto-scroll
+  const enableAutoScroll = () => {
+    setAutoScroll(true)
+    if (logsScrollAreaRef.current) {
+      logsScrollAreaRef.current.scrollTop = logsScrollAreaRef.current.scrollHeight
+    }
+  }
+
   return (
     <div className="min-h-screen bg-white dark:bg-[rgb(23,23,24)] text-black dark:text-white transition-colors duration-200">
       <div className="container mx-auto p-4 max-w-6xl">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center">
             <h1 className="text-3xl font-bold text-center">qTools</h1>
-            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-              {currentUser?.daysLeft ? formatTimeLeft(currentUser.daysLeft) : "0 дней"}
+            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400 border-l border-gray-300 dark:border-gray-600 pl-2">
+              {currentUser?.days_left ? formatTimeLeft(currentUser.days_left) : "0 дней"}
             </span>
           </div>
           <div className="flex gap-2">
@@ -524,7 +591,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                   <DialogTitle className="dark:text-white">Настройки</DialogTitle>
                 </DialogHeader>
                 <Tabs defaultValue="checker" className="mt-4">
-                  <TabsList className="grid grid-cols-3 dark:bg-[rgb(40,40,45)]">
+                  <TabsList className="grid w-full grid-cols-3 dark:bg-[rgb(40,40,45)]">
                     <TabsTrigger
                       value="checker"
                       className="dark:data-[state=active]:bg-[rgb(32,32,35)] dark:text-white"
@@ -994,11 +1061,11 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                 <div className="grid grid-cols-2 gap-3">
                   <Button
                     onClick={startCheck}
-                    disabled={!file || isChecking}
+                    disabled={!file || (isChecking && !isPaused)}
                     className="col-span-1 bg-green-500 hover:bg-green-600 text-white dark:bg-green-600 dark:hover:bg-green-700 dark:text-white"
                   >
                     <Play className="mr-2 h-4 w-4" />
-                    Старт
+                    {isPaused ? "Продолжить" : "Старт"}
                   </Button>
 
                   <Button
@@ -1043,25 +1110,42 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                   </TabsList>
 
                   <TabsContent value="logs" className="mt-4">
-                    <ScrollArea className="h-[400px] w-full rounded-md border p-4 dark:border-[rgb(45,45,48)] dark:bg-[rgb(32,32,35)]">
-                      {logs.length > 0 ? (
-                        logs.map((log, index) => (
-                          <div
-                            key={index}
-                            className="py-1 text-sm border-b border-gray-100 dark:border-[rgb(45,45,48)] last:border-0"
-                          >
-                            <span className="text-muted-foreground dark:text-gray-400 text-xs">
-                              {log.timestamp.toLocaleTimeString()}:{" "}
-                            </span>
-                            {log.text}
+                    <div className="relative">
+                      <ScrollArea
+                        className="h-[400px] w-full rounded-md border p-4 dark:border-[rgb(45,45,48)] dark:bg-[rgb(32,32,35)]"
+                        ref={logsScrollAreaRef}
+                        onScroll={handleLogsScroll}
+                      >
+                        {logs.length > 0 ? (
+                          logs.map((log, index) => (
+                            <div
+                              key={index}
+                              className="py-1 text-sm border-b border-gray-100 dark:border-[rgb(45,45,48)] last:border-0"
+                            >
+                              <span className="text-muted-foreground dark:text-gray-400 text-xs">
+                                {log.timestamp.toLocaleTimeString()}:{" "}
+                              </span>
+                              {log.text}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="flex items-center justify-center h-full text-muted-foreground dark:text-gray-400">
+                            Логи будут отображаться здесь
                           </div>
-                        ))
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground dark:text-gray-400">
-                          Логи будут отображаться здесь
-                        </div>
+                        )}
+                      </ScrollArea>
+                      {!autoScroll && logs.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="absolute bottom-2 right-2 bg-white dark:bg-[rgb(40,40,45)] opacity-80"
+                          onClick={enableAutoScroll}
+                        >
+                          <ArrowDown className="h-4 w-4 mr-1" />
+                          Вниз
+                        </Button>
                       )}
-                    </ScrollArea>
+                    </div>
                   </TabsContent>
 
                   <TabsContent value="stats" className="mt-4">
@@ -1128,7 +1212,23 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
 
                           <div>
                             <div className="flex justify-between items-center mb-1">
-                              <h4 className="font-medium">Топ аккаунты</h4>
+                              <div className="flex items-center">
+                                <h4 className="font-medium">Топ аккаунты</h4>
+                                <div className="ml-2 flex gap-1">
+                                  {[0, 1, 2].map((index) => (
+                                    <Button
+                                      key={index}
+                                      size="sm"
+                                      variant={selectedTopAccount === index ? "default" : "outline"}
+                                      className="h-6 w-6 p-0"
+                                      onClick={() => setSelectedTopAccount(index)}
+                                      disabled={topAccounts.length <= index}
+                                    >
+                                      {index + 1}
+                                    </Button>
+                                  ))}
+                                </div>
+                              </div>
                               <div className="relative">
                                 <select
                                   value={sortBy}
@@ -1151,78 +1251,73 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                               </div>
                             </div>
 
-                            {topAccounts.length > 0 ? (
-                              <ScrollArea className="h-[120px]">
-                                <div className="space-y-2">
-                                  {topAccounts.map((account, index) => (
-                                    <div key={index} className="p-2 border rounded dark:border-[rgb(45,45,48)]">
-                                      <div className="flex justify-between items-center mb-1">
-                                        <div className="font-medium text-base">Username: {account.username}</div>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-xs dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white dark:border-[rgb(45,45,48)]"
-                                          onClick={() => {
-                                            navigator.clipboard.writeText(account.cookie)
-                                            // Optional: Show a toast or notification
-                                          }}
-                                        >
-                                          Copy Cookie
-                                        </Button>
-                                      </div>
-                                      <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
-                                        {/* Column 1 */}
-                                        <div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Balance:</span>
-                                            <span>{account.balance}</span>
-                                          </div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Donate:</span>
-                                            <span>{account.donate}</span>
-                                          </div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Pending:</span>
-                                            <span>{account.pending}</span>
-                                          </div>
-                                        </div>
-
-                                        {/* Column 2 */}
-                                        <div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">RAP:</span>
-                                            <span>{account.rap}</span>
-                                          </div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Billing:</span>
-                                            <span>{account.billing}</span>
-                                          </div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Premium:</span>
-                                            <span>{account.premium ? "Yes" : "No"}</span>
-                                          </div>
-                                        </div>
-
-                                        {/* Column 3 */}
-                                        <div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Card:</span>
-                                            <span>{account.card ? "Yes" : "No"}</span>
-                                          </div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Badge:</span>
-                                            <span>{account.badge}</span>
-                                          </div>
-                                          <div className="flex justify-between">
-                                            <span className="text-muted-foreground dark:text-gray-400">Gamepass:</span>
-                                            <span>{account.gamepass}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
+                            {topAccounts.length > 0 && topAccounts[selectedTopAccount] ? (
+                              <div className="p-2 border rounded dark:border-[rgb(45,45,48)]">
+                                <div className="flex justify-between items-center mb-1">
+                                  <div className="font-medium text-base">
+                                    Username: {topAccounts[selectedTopAccount].username}
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white dark:border-[rgb(45,45,48)]"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(topAccounts[selectedTopAccount].cookie)
+                                    }}
+                                  >
+                                    Copy Cookie
+                                  </Button>
                                 </div>
-                              </ScrollArea>
+                                <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
+                                  {/* Column 1 */}
+                                  <div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Balance:</span>
+                                      <span>{topAccounts[selectedTopAccount].balance}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Donate:</span>
+                                      <span>{topAccounts[selectedTopAccount].donate}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Pending:</span>
+                                      <span>{topAccounts[selectedTopAccount].pending}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Column 2 */}
+                                  <div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">RAP:</span>
+                                      <span>{topAccounts[selectedTopAccount].rap}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Billing:</span>
+                                      <span>{topAccounts[selectedTopAccount].billing}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Premium:</span>
+                                      <span>{topAccounts[selectedTopAccount].premium ? "Yes" : "No"}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Column 3 */}
+                                  <div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Card:</span>
+                                      <span>{topAccounts[selectedTopAccount].card ? "Yes" : "No"}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Badge:</span>
+                                      <span>{topAccounts[selectedTopAccount].badge}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground dark:text-gray-400">Gamepass:</span>
+                                      <span>{topAccounts[selectedTopAccount].gamepass}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
                             ) : (
                               <div className="text-center text-muted-foreground dark:text-gray-400 py-2">
                                 Топ аккаунты появятся в процессе проверки
