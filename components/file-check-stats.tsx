@@ -16,6 +16,7 @@ import {
   Clock,
   ChevronDown,
   ArrowDown,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,6 +33,33 @@ import { Separator } from "@/components/ui/separator"
 import type { User, LogEntry, Account } from "@/lib/types"
 import { formatTimeLeft } from "@/lib/types"
 
+// Format time in Moscow timezone (UTC+3)
+const formatMoscowTime = (date: Date): string => {
+  return new Date(date.getTime() + 3 * 60 * 60 * 1000).toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+}
+
+// Filter cookies from text, extracting only the valid cookie part
+const filterCookies = (text: string): string[] => {
+  const lines = text.split("\n")
+  const filtered: string[] = []
+
+  for (const line of lines) {
+    if (line.includes("_|WARNING:-DO-NOT-SHARE-THIS.")) {
+      const cookieStart = line.indexOf("_|WARNING:-DO-NOT-SHARE-THIS.")
+      // Extract the cookie part (until space or end of line)
+      const cookiePart = line.substring(cookieStart).split(/\s+/)[0]
+      filtered.push(cookiePart)
+    }
+  }
+
+  return filtered
+}
+
 interface FileCheckStatisticsProps {
   currentUser: User | null
   onLogout: () => void
@@ -40,7 +68,7 @@ interface FileCheckStatisticsProps {
 export default function FileCheckStatistics({ currentUser, onLogout }: FileCheckStatisticsProps) {
   const [file, setFile] = useState<File | null>(null)
   const [isChecking, setIsChecking] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
+  const [isPaused, setIsPaused] = useState(isChecking)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [mode, setMode] = useState("checker")
@@ -54,6 +82,9 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
   const logsScrollAreaRef = useRef<HTMLDivElement>(null)
   const [sortBy, setSortBy] = useState<keyof Account>("rap")
   const [topAccounts, setTopAccounts] = useState<Account[]>([])
+  const [results, setResults] = useState<Account[]>([])
+  const [resultsSortBy, setResultsSortBy] = useState<keyof Account>("rap")
+  const [subscriptionTimer, setSubscriptionTimer] = useState<NodeJS.Timeout | null>(null)
 
   // Reference to interval for cleanup
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -103,6 +134,9 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
       notifyRefresher: false,
     },
   })
+
+  // Add a state for refresher cookies
+  const [refresherCookies, setRefresherCookies] = useState<string[]>([])
 
   // Toggle theme between light and dark
   const toggleTheme = () => {
@@ -187,7 +221,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
   }, [logs, autoScroll])
 
   // Format elapsed time to minutes:seconds
-  const formatElapsedTime = (startTime: Date) => {
+  const formatElapsedTimeFunc = (startTime: Date) => {
     const now = new Date()
     const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000)
 
@@ -202,32 +236,49 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
   }
 
   // Add a log entry with current timestamp
-  const addLog = (text: string) => {
+  const addLogFunc = (text: string) => {
     setLogs((prev) => [...prev, { text, timestamp: new Date() }])
   }
 
   const handleFileSelection = (selectedFile: File) => {
-    setFile(selectedFile)
-
-    // Reset statistics when a new file is loaded
-    if (mode === "checker") {
-      setCheckerStats({
-        ...checkerStats,
-        loaded: Math.floor(selectedFile.size / 100), // Simulate number of lines based on file size
-      })
-    } else {
-      setRefresherStats({
-        ...refresherStats,
-        loaded: Math.floor(selectedFile.size / 100), // Simulate number of lines based on file size
-      })
+    // Check if file is txt format
+    if (!selectedFile.name.toLowerCase().endsWith(".txt")) {
+      addLogFunc(`Ошибка: Можно загружать только файлы формата .txt`)
+      return
     }
 
-    setLogs([
-      {
-        text: `Файл загружен: ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(2)} KB)`,
-        timestamp: new Date(),
-      },
-    ])
+    setFile(selectedFile)
+
+    // Read the file to count lines and filter cookies
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        const content = e.target.result as string
+        const filteredCookies = filterCookies(content)
+        const lineCount = filteredCookies.length
+
+        // Reset statistics based on mode
+        if (mode === "checker") {
+          setCheckerStats({
+            ...checkerStats,
+            loaded: lineCount,
+          })
+        } else {
+          setRefresherStats({
+            ...refresherStats,
+            loaded: lineCount,
+          })
+
+          // For refresher mode, store the filtered cookies
+          setRefresherCookies(filteredCookies)
+        }
+
+        addLogFunc(
+          `Файл загружен: ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(2)} KB, отсортировано: ${lineCount} куки)`,
+        )
+      }
+    }
+    reader.readAsText(selectedFile)
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -264,6 +315,21 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
 
   // Update top accounts
   const updateTopAccounts = (newAccount: Account) => {
+    // Add to results
+    setResults((prevResults) => {
+      const updatedResults = [...prevResults]
+      // Only add if not already in results
+      if (!updatedResults.some((acc) => acc.cookie === newAccount.cookie)) {
+        updatedResults.push(newAccount)
+      }
+      return updatedResults.sort((a, b) => {
+        if (typeof a[resultsSortBy] === "boolean") {
+          return a[resultsSortBy] === b[resultsSortBy] ? 0 : a[resultsSortBy] ? -1 : 1
+        }
+        return (b[resultsSortBy] as number) - (a[resultsSortBy] as number)
+      })
+    })
+
     setTopAccounts((prevAccounts) => {
       const updatedAccounts = [...prevAccounts, newAccount]
       return updatedAccounts
@@ -301,20 +367,21 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
       // Resume timer
       if (startTime) {
         timerRef.current = setInterval(() => {
-          setElapsedTime(formatElapsedTime(startTime))
+          setElapsedTime(formatElapsedTimeFunc(startTime))
         }, 1000)
       }
 
       // Resume progress simulation
       simulateProgress()
 
-      addLog(`Проверка возобновлена`)
+      addLogFunc(`Проверка возобновлена`)
       return
     }
 
     setIsChecking(true)
     setProgress(0)
     setTopAccounts([])
+    setResults([])
 
     // Set start time and start timer
     const now = new Date()
@@ -326,13 +393,13 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
     }
 
     timerRef.current = setInterval(() => {
-      setElapsedTime(formatElapsedTime(now))
+      setElapsedTime(formatElapsedTimeFunc(now))
     }, 1000)
 
     // Reset statistics for the current mode
     if (mode === "checker") {
-      setCheckerStats({
-        ...checkerStats,
+      setCheckerStats((prev) => ({
+        ...prev,
         valid: 0,
         invalid: 0,
         errors: 0,
@@ -345,20 +412,20 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
         card: 0,
         badge: 0,
         gamepass: 0,
-      })
+      }))
     } else {
-      setRefresherStats({
-        ...refresherStats,
+      setRefresherStats((prev) => ({
+        ...prev,
         refreshed: 0,
         error: 0,
-      })
+      }))
     }
 
-    addLog(`Начало ${mode === "checker" ? "проверки" : "обновления"} файла: ${file.name}`)
-    addLog(`Используется ${mode === "checker" ? settings.checker.threads : settings.refresher.threads} потоков`)
+    addLogFunc(`Начало ${mode === "checker" ? "проверки" : "обновления"} файла: ${file.name}`)
+    addLogFunc(`Используется ${mode === "checker" ? settings.checker.threads : settings.refresher.threads} потоков`)
 
     if (mode === "refresher") {
-      addLog(`Режим обновления: ${settings.refresher.mode === "main" ? "Основной" : "Быстрый"}`)
+      addLogFunc(`Режим обновления: ${settings.refresher.mode === "main" ? "Основной" : "Быстрый"}`)
     }
 
     // Clear any existing interval
@@ -378,69 +445,122 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
 
         // Update statistics based on mode
         if (mode === "checker") {
-          // Generate random increments for checker stats
-          const validIncrement = Math.floor(Math.random() * 3)
-          const invalidIncrement = Math.floor(Math.random() * 2)
-          const errorIncrement = Math.random() > 0.8 ? 1 : 0
+          // Calculate how many cookies to process in this step
+          const totalProcessed = checkerStats.valid + checkerStats.invalid
+          const remainingToProcess = checkerStats.loaded - totalProcessed
 
-          setCheckerStats((prevStats) => ({
-            ...prevStats,
-            valid: prevStats.valid + validIncrement,
-            invalid: prevStats.invalid + invalidIncrement,
-            errors: prevStats.errors + errorIncrement,
-            donate: prevStats.donate + (Math.random() > 0.9 ? 1 : 0),
-            balance: prevStats.balance + (Math.random() > 0.7 ? Math.floor(Math.random() * 100) : 0),
-            pending: prevStats.pending + (Math.random() > 0.8 ? Math.floor(Math.random() * 10) : 0),
-            rap: prevStats.rap + (Math.random() > 0.7 ? Math.floor(Math.random() * 1000) : 0),
-            billing: prevStats.billing + (Math.random() > 0.9 ? 1 : 0),
-            premium: prevStats.premium + (Math.random() > 0.95 ? 1 : 0),
-            card: prevStats.card + (Math.random() > 0.9 ? 1 : 0),
-            badge: prevStats.badge + (Math.random() > 0.85 ? 1 : 0),
-            gamepass: prevStats.gamepass + (Math.random() > 0.85 ? 1 : 0),
-          }))
+          if (remainingToProcess > 0) {
+            // Decide how many cookies to process in this step (1-3)
+            const cookiesToProcess = Math.min(Math.floor(Math.random() * 3) + 1, remainingToProcess)
 
-          // Occasionally generate a new account for the top list
-          if (Math.random() > 0.8) {
-            updateTopAccounts(generateRandomAccount())
-          }
+            // Decide how many of those will be valid vs invalid
+            const validIncrement = Math.floor(Math.random() * (cookiesToProcess + 1))
+            const invalidIncrement = cookiesToProcess - validIncrement
 
-          // Add detailed logs for checker mode
-          if (validIncrement > 0) {
-            addLog(`Найден валидный аккаунт: ${validIncrement}`)
-          }
-          if (invalidIncrement > 0) {
-            addLog(`Найден невалидный аккаунт: ${invalidIncrement}`)
-          }
-          if (errorIncrement > 0) {
-            addLog(`Ошибка проверки: ${errorIncrement}`)
+            setCheckerStats((prevStats) => ({
+              ...prevStats,
+              valid: prevStats.valid + validIncrement,
+              invalid: prevStats.invalid + invalidIncrement,
+              // Only update these stats for valid accounts
+              donate: prevStats.donate + (validIncrement > 0 ? Math.floor(Math.random() * 2) * validIncrement : 0),
+              balance: prevStats.balance + (validIncrement > 0 ? Math.floor(Math.random() * 100) * validIncrement : 0),
+              pending: prevStats.pending + (validIncrement > 0 ? Math.floor(Math.random() * 5) * validIncrement : 0),
+              rap: prevStats.rap + (validIncrement > 0 ? Math.floor(Math.random() * 1000) * validIncrement : 0),
+              billing: prevStats.billing + (validIncrement > 0 ? (Math.random() > 0.9 ? 1 : 0) * validIncrement : 0),
+              premium: prevStats.premium + (validIncrement > 0 ? (Math.random() > 0.95 ? 1 : 0) * validIncrement : 0),
+              card: prevStats.card + (validIncrement > 0 ? (Math.random() > 0.9 ? 1 : 0) * validIncrement : 0),
+              badge: prevStats.badge + (validIncrement > 0 ? (Math.random() > 0.85 ? 1 : 0) * validIncrement : 0),
+              gamepass: prevStats.gamepass + (validIncrement > 0 ? (Math.random() > 0.85 ? 1 : 0) * validIncrement : 0),
+            }))
+
+            // Only generate new accounts for valid increments
+            if (validIncrement > 0) {
+              // Generate accounts for each valid increment
+              for (let i = 0; i < validIncrement; i++) {
+                updateTopAccounts(generateRandomAccount())
+              }
+              addLogFunc(`Найден валидный аккаунт: ${validIncrement}`)
+            }
+
+            if (invalidIncrement > 0) {
+              addLogFunc(`Найден невалидный аккаунт: ${invalidIncrement}`)
+            }
           }
         } else {
-          // Generate random increments for refresher stats
-          const refreshedIncrement = Math.floor(Math.random() * 3)
-          const errorIncrement = Math.random() > 0.8 ? 1 : 0
+          // For refresher mode, similar logic to ensure refreshed + error = loaded
+          const totalProcessed = refresherStats.refreshed + refresherStats.error
+          const remainingToProcess = refresherStats.loaded - totalProcessed
 
-          setRefresherStats((prevStats) => ({
-            ...prevStats,
-            refreshed: prevStats.refreshed + refreshedIncrement,
-            error: prevStats.error + errorIncrement,
-          }))
+          if (remainingToProcess > 0) {
+            // Decide how many cookies to process in this step (1-3)
+            const cookiesToProcess = Math.min(Math.floor(Math.random() * 3) + 1, remainingToProcess)
 
-          // Add detailed logs for refresher mode
-          if (refreshedIncrement > 0) {
-            addLog(`Обновлено аккаунтов: ${refreshedIncrement}`)
-          }
-          if (errorIncrement > 0) {
-            addLog(`Ошибка обновления: ${errorIncrement}`)
+            // Decide how many of those will be refreshed vs error
+            const refreshedIncrement = Math.floor(Math.random() * (cookiesToProcess + 1))
+            const errorIncrement = cookiesToProcess - refreshedIncrement
+
+            setRefresherStats((prevStats) => ({
+              ...prevStats,
+              refreshed: prevStats.refreshed + refreshedIncrement,
+              error: prevStats.error + errorIncrement,
+            }))
+
+            // Add refreshed cookies to results only for valid ones
+            if (refreshedIncrement > 0) {
+              addLogFunc(`Обновлено аккаунтов: ${refreshedIncrement}`)
+
+              // Add refreshed cookies to results
+              for (let i = 0; i < refreshedIncrement; i++) {
+                if (refresherCookies.length > 0) {
+                  const index = Math.floor(Math.random() * refresherCookies.length)
+                  const cookie = refresherCookies[index]
+
+                  // Add to results
+                  setResults((prevResults) => {
+                    const updatedResults = [...prevResults]
+                    // Only add if not already in results
+                    if (!updatedResults.some((acc) => acc.cookie === cookie)) {
+                      updatedResults.push({
+                        username: `User${Math.floor(Math.random() * 10000)}`,
+                        cookie: cookie,
+                        donate: 0,
+                        balance: 0,
+                        pending: 0,
+                        rap: 0,
+                        billing: 0,
+                        premium: false,
+                        card: false,
+                        badge: 0,
+                        gamepass: 0,
+                      })
+                    }
+                    return updatedResults
+                  })
+
+                  // Remove from refresherCookies to avoid duplicates
+                  setRefresherCookies((prev) => prev.filter((_, i) => i !== index))
+                }
+              }
+            }
+
+            if (errorIncrement > 0) {
+              addLogFunc(`Ошибка обновления: ${errorIncrement}`)
+            }
           }
         }
 
-        // Check if process is complete
-        if (newProgress >= 100) {
+        // Check if process is complete - either progress reached 100% or all cookies processed
+        const isAllProcessed =
+          mode === "checker"
+            ? checkerStats.valid + checkerStats.invalid >= checkerStats.loaded
+            : refresherStats.refreshed + refresherStats.error >= refresherStats.loaded
+
+        if (newProgress >= 100 || isAllProcessed) {
           clearInterval(intervalRef.current!)
           clearInterval(timerRef.current!)
           setIsChecking(false)
           setIsPaused(false)
-          addLog(mode === "checker" ? "Проверка завершена" : "Обновление завершено")
+          addLogFunc(mode === "checker" ? "Проверка завершена" : "Обновление завершено")
 
           // If Telegram settings are configured, log notification
           if (settings.telegram.token && settings.telegram.chatId) {
@@ -448,7 +568,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
               (mode === "checker" && settings.telegram.notifyChecker) ||
               (mode === "refresher" && settings.telegram.notifyRefresher)
             ) {
-              addLog(`Уведомление отправлено в Telegram (${settings.telegram.chatId})`)
+              addLogFunc(`Уведомление отправлено в Telegram (${settings.telegram.chatId})`)
             }
           }
 
@@ -473,7 +593,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
 
     setIsPaused(true)
     setIsChecking(false)
-    addLog(mode === "checker" ? "Проверка приостановлена" : "Обновление приостановлено")
+    addLogFunc(mode === "checker" ? "Проверка приостановлена" : "Обновление приостановлена")
   }
 
   const clearLogs = () => {
@@ -482,6 +602,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
     setFile(null)
     setElapsedTime("00:00")
     setTopAccounts([])
+    setResults([])
     setIsPaused(false)
 
     // Reset file input
@@ -562,6 +683,97 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
     if (logsScrollAreaRef.current) {
       logsScrollAreaRef.current.scrollTop = logsScrollAreaRef.current.scrollHeight
     }
+  }
+
+  const downloadResults = () => {
+    if (results.length === 0) return
+
+    let content = ""
+
+    if (mode === "checker") {
+      content = results
+        .map((account) => {
+          return `Username: ${account.username} |Balance: ${account.balance} |Donate: ${account.donate} |Rap: ${account.rap} |Billing: ${account.billing.toFixed(1)} USD |Premium: ${account.premium} |Mail: ${Math.random() > 0.5} |Card: ${account.card} |Pending: ${account.pending} |Badges: ${account.badge} |Gamepasses: ${account.gamepass} |Cookie: ${account.cookie}`
+        })
+        .join("\n")
+    } else {
+      // For refresher mode, just output the cookies
+      content = results.map((account) => account.cookie).join("\n")
+    }
+
+    const blob = new Blob([content], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `results_${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Add this function to sort results
+  const sortResults = (criteria: keyof Account) => {
+    setResultsSortBy(criteria)
+    setResults((prevResults) => {
+      return [...prevResults].sort((a, b) => {
+        if (typeof a[criteria] === "boolean") {
+          return a[criteria] === b[criteria] ? 0 : a[criteria] ? -1 : 1
+        }
+        return (b[criteria] as number) - (a[criteria] as number)
+      })
+    })
+  }
+
+  // Add this useEffect for subscription time synchronization
+  useEffect(() => {
+    // Start a timer to decrease subscription time
+    if (currentUser && currentUser.days_left > 0) {
+      // Update every minute (60000 ms)
+      const timer = setInterval(() => {
+        // Decrease by approximately 1 minute worth of days
+        const minuteInDays = 1 / (24 * 60)
+
+        // Update the current user's subscription time
+        if (currentUser.days_left > 0) {
+          currentUser.days_left = Math.max(0, currentUser.days_left - minuteInDays)
+
+          // Force a re-render
+          setSubscriptionTimer(timer)
+        } else {
+          // If subscription has expired, clear the timer
+          clearInterval(timer)
+          setSubscriptionTimer(null)
+          // Redirect or show message if needed
+        }
+      }, 60000) // Every minute
+
+      setSubscriptionTimer(timer)
+
+      return () => {
+        clearInterval(timer)
+      }
+    }
+  }, [currentUser])
+
+  // Update the addLog function to use Moscow time
+  const addLog = (text: string) => {
+    setLogs((prev) => [...prev, { text, timestamp: new Date() }])
+  }
+
+  // Update the formatElapsedTime function to use Moscow time
+  const formatElapsedTime = (startTime: Date) => {
+    const now = new Date()
+    const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000)
+
+    const minutes = Math.floor(elapsed / 60)
+      .toString()
+      .padStart(2, "0")
+    const seconds = Math.floor(elapsed % 60)
+      .toString()
+      .padStart(2, "0")
+
+    return `${minutes}:${seconds}`
   }
 
   return (
@@ -931,7 +1143,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                       variant="outline"
                       onClick={() => {
                         if (settings.telegram.token && settings.telegram.chatId) {
-                          addLog(`Тестовое уведомление отправлено в Telegram (${settings.telegram.chatId})`)
+                          addLogFunc(`Тестовое уведомление отправлено в Telegram (${settings.telegram.chatId})`)
                         }
                       }}
                     >
@@ -1024,7 +1236,14 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                 className="border-2 border-dashed rounded-lg p-6 text-center border-gray-300 dark:border-[rgb(45,45,48)] hover:border-primary dark:hover:border-primary transition-colors cursor-pointer"
                 ref={dropZoneRef}
               >
-                <input type="file" id="file-upload" className="hidden" onChange={handleFileChange} ref={fileInputRef} />
+                <input
+                  type="file"
+                  id="file-upload"
+                  className="hidden"
+                  onChange={handleFileChange}
+                  ref={fileInputRef}
+                  accept=".txt"
+                />
                 <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center justify-center gap-2">
                   <Upload className="h-8 w-8 text-muted-foreground dark:text-gray-400" />
                   <span className="text-sm font-medium">Загрузить файл</span>
@@ -1098,7 +1317,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
             <CardHeader>
               <div className="w-full">
                 <Tabs defaultValue="logs" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 dark:bg-[rgb(40,40,45)]">
+                  <TabsList className="grid w-full grid-cols-3 dark:bg-[rgb(40,40,45)]">
                     <TabsTrigger value="logs" className="dark:data-[state=active]:bg-[rgb(32,32,35)]">
                       <FileText className="mr-2 h-4 w-4" />
                       Логи
@@ -1106,6 +1325,10 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                     <TabsTrigger value="stats" className="dark:data-[state=active]:bg-[rgb(32,32,35)]">
                       <BarChart3 className="mr-2 h-4 w-4" />
                       Статистика
+                    </TabsTrigger>
+                    <TabsTrigger value="results" className="dark:data-[state=active]:bg-[rgb(32,32,35)]">
+                      <Download className="mr-2 h-4 w-4" />
+                      Результаты
                     </TabsTrigger>
                   </TabsList>
 
@@ -1123,7 +1346,7 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                               className="py-1 text-sm border-b border-gray-100 dark:border-[rgb(45,45,48)] last:border-0"
                             >
                               <span className="text-muted-foreground dark:text-gray-400 text-xs">
-                                {log.timestamp.toLocaleTimeString()}:{" "}
+                                {formatMoscowTime(log.timestamp)}:{" "}
                               </span>
                               {log.text}
                             </div>
@@ -1327,10 +1550,14 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                         </div>
                       ) : (
                         // Refresher mode statistics
-                        <div className="space-y-4">
+                        <div className="space-y-4 h-full">
                           <div>
                             <h4 className="font-medium mb-2">Статистика</h4>
                             <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground dark:text-gray-400">Loaded:</span>
+                                <span>{refresherStats.loaded}</span>
+                              </div>
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground dark:text-gray-400">Refreshed:</span>
                                 <span className="text-green-500 dark:text-green-400">{refresherStats.refreshed}</span>
@@ -1341,8 +1568,153 @@ export default function FileCheckStatistics({ currentUser, onLogout }: FileCheck
                               </div>
                             </div>
                           </div>
+
+                          {/* Add placeholder content to fill empty space */}
+                          <div className="mt-4">
+                            <h4 className="font-medium mb-2">Информация</h4>
+                            <div className="text-sm text-muted-foreground dark:text-gray-400">
+                              <p>Режим обновления: {settings.refresher.mode === "main" ? "Основной" : "Быстрый"}</p>
+                              <p>Потоков: {settings.refresher.threads}</p>
+                              <p>Формат файла: .txt (1 строка = 1 куки)</p>
+                            </div>
+                          </div>
                         </div>
                       )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="results" className="mt-4">
+                    <div className="h-[400px] w-full rounded-md border dark:border-[rgb(45,45,48)] dark:bg-[rgb(32,32,35)]">
+                      <div className="p-2 flex justify-between items-center border-b dark:border-[rgb(45,45,48)]">
+                        <div className="flex items-center">
+                          <h4 className="font-medium">Результаты ({results.length})</h4>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {mode === "checker" && (
+                            <div className="relative">
+                              <select
+                                value={resultsSortBy}
+                                onChange={(e) => sortResults(e.target.value as keyof Account)}
+                                className="appearance-none bg-gray-100 dark:bg-[rgb(40,40,45)] rounded-md px-3 py-1 pr-8 text-sm font-medium cursor-pointer border border-gray-200 dark:border-[rgb(45,45,48)]"
+                              >
+                                <option value="rap">RAP</option>
+                                <option value="balance">Balance</option>
+                                <option value="donate">Donate</option>
+                                <option value="pending">Pending</option>
+                                <option value="billing">Billing</option>
+                                <option value="premium">Premium</option>
+                                <option value="card">Card</option>
+                                <option value="badge">Badge</option>
+                                <option value="gamepass">Gamepass</option>
+                              </select>
+                              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                                <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                              </div>
+                            </div>
+                          )}
+                          <Button
+                            size="sm"
+                            onClick={downloadResults}
+                            disabled={results.length === 0}
+                            className="dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white"
+                          >
+                            <Download className="h-4 w-4 mr-1" />
+                            Скачать
+                          </Button>
+                        </div>
+                      </div>
+
+                      <ScrollArea className="h-[350px]">
+                        {results.length > 0 ? (
+                          <div className="space-y-2 p-2">
+                            {mode === "checker"
+                              ? // Checker mode results
+                                results.map((account, index) => (
+                                  <div key={index} className="p-2 border rounded dark:border-[rgb(45,45,48)] text-sm">
+                                    <div className="flex justify-between items-center mb-1">
+                                      <div className="font-medium">Username: {account.username}</div>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 px-2 text-xs dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white dark:border-[rgb(45,45,48)]"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(account.cookie)
+                                          addLogFunc(`Куки скопированы: ${account.username}`)
+                                        }}
+                                      >
+                                        Copy Cookie
+                                      </Button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Balance:</span>
+                                        <span>{account.balance}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Donate:</span>
+                                        <span>{account.donate}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">RAP:</span>
+                                        <span>{account.rap}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Billing:</span>
+                                        <span>{account.billing.toFixed(1)} USD</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Premium:</span>
+                                        <span>{account.premium ? "Yes" : "No"}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Mail:</span>
+                                        <span>{Math.random() > 0.5 ? "Yes" : "No"}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Card:</span>
+                                        <span>{account.card ? "Yes" : "No"}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Pending:</span>
+                                        <span>{account.pending}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Badges:</span>
+                                        <span>{account.badge}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground dark:text-gray-400">Gamepasses:</span>
+                                        <span>{account.gamepass}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))
+                              : // Refresher mode results - just cookies
+                                results.map((account, index) => (
+                                  <div key={index} className="p-2 border rounded dark:border-[rgb(45,45,48)] text-sm">
+                                    <div className="flex justify-between items-center">
+                                      <div className="font-medium truncate mr-2 flex-1">{account.cookie}</div>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 px-2 text-xs dark:bg-[rgb(40,40,45)] dark:hover:bg-[rgb(50,50,55)] dark:text-white dark:border-[rgb(45,45,48)]"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(account.cookie)
+                                          addLogFunc(`Куки скопированы`)
+                                        }}
+                                      >
+                                        Copy
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center h-full text-muted-foreground dark:text-gray-400">
+                            Результаты будут отображаться здесь
+                          </div>
+                        )}
+                      </ScrollArea>
                     </div>
                   </TabsContent>
                 </Tabs>
